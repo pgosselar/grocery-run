@@ -59,3 +59,25 @@ export interface HistoryEntry {
   completedBy: string;
   completedAt: number;
 }
+
+/** One cleaned-up ingredient, ready to become a grocery item. */
+export interface ParsedIngredient {
+  /** The recipe line(s) it came from, for the preview */
+  original: string;
+  title: string;
+  quantity: string;
+  notes: string;
+  section: string;
+  /** Pantry staple (salt, oil, water…) — starts unticked in the preview */
+  staple: boolean;
+}
+
+export interface RecipeImport {
+  name: string;
+  url: string | null;
+  image: string | null;
+  servings: string | null;
+  ingredients: ParsedIngredient[];
+  cleanedBy: "claude" | "rules";
+  warning?: string;
+}

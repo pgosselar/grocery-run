@@ -9,6 +9,7 @@ A shared family grocery list that works like iOS Reminders. It's an installable 
 - **Swipe left** to flag or delete. A long swipe deletes.
 - **ⓘ on every item** shows who added it and when, plus who checked it off. **Edit Details** covers notes, quantity, section, flag, and moving to another list.
 - **History** for each section shows the last 10 items checked off, with who added and completed each one, and a button to add an item again. The server keeps this log, so it survives **Clear Completed**.
+- **Import from a recipe:** tap **From Recipe**, paste a link (or the ingredient text), review the cleaned-up items, and add them. Staples like salt and oil, and anything already on the list, start unticked. Each item's notes say which recipe it's for.
 - **Suggestions** from past items as you type
 - **Live sync:** websockets push every change to the other phones instantly.
 - **Works offline.** Changes queue on the phone and sync when signal comes back. Conflicts resolve last-write-wins.
@@ -59,6 +60,8 @@ Add a Proxy Host with these settings:
 | `DB_PATH` | `data/grocery.db` | SQLite file. Back this up. |
 | `FAMILY_PASSCODE` | *(empty)* | Shared passcode. Empty means no login, so only leave it empty on a trusted network. |
 | `SESSION_SECRET` | derived | Set this to keep sessions valid if you change the passcode. |
+| `ANTHROPIC_API_KEY` | *(unset)* | Optional. Recipe import uses Claude to clean up ingredients, and falls back to the built-in rules if the call fails. |
+| `RECIPE_MODEL` | `claude-opus-5-5` | Claude model for recipe cleanup |
 
 ### HTTPS (needed to install on iPhone)
 
@@ -69,3 +72,11 @@ iOS only installs PWAs and runs the offline service worker over HTTPS. Options:
 - **Caddy** with a domain: `groceries.example.com { reverse_proxy localhost:3001 }`
 
 Then in Safari, tap **Share**, then **Add to Home Screen**.
+
+## Recipe import: how it works
+
+1. **Fetch** (`server/recipe/fetch.ts`): the server downloads the page, with a 12s timeout and a 5 MB cap. It refuses any address on a private network, so a link can't be used to probe your LAN. It identifies itself honestly, so sites that block automated requests get a "paste the ingredients instead" message.
+2. **Extract** (`server/recipe/extract.ts`): reads the schema.org `Recipe` JSON-LD that recipe sites publish for search engines, and falls back to microdata. No HTML scraping.
+3. **Clean** each line into title, quantity, notes, section, and whether it's a staple:
+   - **Rules** (`server/recipe/ingredients.ts`): unicode fractions, units, parentheticals, prep words ("finely chopped"), costs like "($0.32)", "X or Y" alternatives, and canned goods. Duplicates are merged ("butter" in the crust and the filling).
+   - **Claude** (`server/recipe/claude.ts`), when `ANTHROPIC_API_KEY` is set: one structured-output call that returns validated JSON, at low effort for speed. Better on messy lines; usually costs a fraction of a cent per recipe.

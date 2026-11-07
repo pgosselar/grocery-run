@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Ellipsis, Eye, EyeOff, History, Info, LayoutList, Plus, Rows3, Trash2 } from "lucide-react";
+import { ChefHat, ChevronLeft, Ellipsis, Eye, EyeOff, History, Info, LayoutList, Plus, Rows3, Trash2 } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import type { Item } from "../../shared/types";
@@ -15,6 +15,7 @@ import { ItemRow } from "./ItemRow";
 import { ItemDetail } from "./ItemDetail";
 import { ListEditor } from "./ListEditor";
 import { HistorySheet } from "./HistorySheet";
+import { RecipeImportSheet } from "./RecipeImportSheet";
 import { SyncBadge } from "./SyncBadge";
 
 const LINGER_MS = 1600;
@@ -44,6 +45,7 @@ export function ListScreen({ id }: { id: string }) {
   const [infoOpen, setInfoOpen] = useState(false);
   // undefined = closed, null = whole list, string = a section
   const [historyFor, setHistoryFor] = useState<string | null | undefined>(undefined);
+  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     if (state.loaded && !list) goBack();
@@ -104,6 +106,9 @@ export function ListScreen({ id }: { id: string }) {
                 <DropdownMenuItem onSelect={() => updateList(id, { grouped: !list.grouped })}>
                   {list.grouped ? "Ungroup Sections" : "Group by Section"}
                   {list.grouped ? <Rows3 /> : <LayoutList />}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setImportOpen(true)}>
+                  Import Recipe <ChefHat />
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setHistoryFor(null)}>
                   Recently Completed <History />
@@ -187,6 +192,7 @@ export function ListScreen({ id }: { id: string }) {
           color={color}
           suggestions={history.filter((t) => !openTitles.has(t.toLowerCase()))}
           onAdd={(title) => addItem(id, title)}
+          onImport={() => setImportOpen(true)}
         />
 
         {/* Tap empty space to add, like Reminders */}
@@ -195,6 +201,7 @@ export function ListScreen({ id }: { id: string }) {
 
       <ItemDetail itemId={detailId} onClose={() => setDetailId(null)} color={color} />
       <ListEditor open={infoOpen} onOpenChange={setInfoOpen} list={list} />
+      <RecipeImportSheet open={importOpen} onClose={() => setImportOpen(false)} listId={id} color={color} />
       <HistorySheet listId={id} section={historyFor} onClose={() => setHistoryFor(undefined)} color={color} />
     </div>
   );
@@ -210,7 +217,9 @@ function NewItemRow({
   color,
   suggestions,
   onAdd,
+  onImport,
 }: {
+  onImport: () => void;
   active: boolean;
   setActive: (v: boolean) => void;
   color: string;
@@ -242,14 +251,23 @@ function NewItemRow({
 
   if (!active) {
     return (
-      <button
-        className="mt-3 flex items-center gap-3 px-3 py-2 text-[17px] font-medium"
-        style={{ color }}
-        onClick={() => setActive(true)}
-      >
-        <Plus className="size-6 rounded-full p-0.5 text-white" style={{ backgroundColor: color }} strokeWidth={3} />
-        New Item
-      </button>
+      <div className="mt-3 flex items-center justify-between">
+        <button
+          className="flex items-center gap-3 px-3 py-2 text-[17px] font-medium"
+          style={{ color }}
+          onClick={() => setActive(true)}
+        >
+          <Plus className="size-6 rounded-full p-0.5 text-white" style={{ backgroundColor: color }} strokeWidth={3} />
+          New Item
+        </button>
+        <button
+          className="flex items-center gap-1.5 rounded-full px-3 py-2 text-sm font-medium"
+          style={{ color }}
+          onClick={onImport}
+        >
+          <ChefHat className="size-4.5" /> From Recipe
+        </button>
+      </div>
     );
   }
 

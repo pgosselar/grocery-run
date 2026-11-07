@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
 import { applyOps, history, snapshot, version } from "./db.ts";
 import { login, me, requireAuth, sessionFrom } from "./auth.ts";
+import { importRecipe } from "./recipe/index.ts";
 import type { Op, ServerMessage } from "../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -23,6 +24,8 @@ app.get("/api/history", requireAuth, (req, res) => {
   if (!listId) return res.status(400).json({ error: "listId required" });
   res.json(history(listId, section, limit));
 });
+
+app.post("/api/recipe", requireAuth, importRecipe);
 
 const OP_TYPES = new Set(["list.put", "list.delete", "item.put", "item.delete"]);
 

@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import type { GroceryList, HistoryEntry, Item, ListColor, Op, ServerMessage, Snapshot } from "../../shared/types";
+import type { GroceryList, HistoryEntry, Item, ListColor, Op, RecipeImport, ServerMessage, Snapshot } from "../../shared/types";
 import { categorize, parseQuantity } from "./sections";
 import { safeStorage, saveStorage, uid } from "./utils";
 
@@ -314,7 +314,7 @@ export function reorderLists(ids: string[]) {
 export function addItem(
   listId: string,
   rawTitle: string,
-  exact?: { quantity?: string; section?: string },
+  exact?: { quantity?: string; section?: string; notes?: string },
 ): string | null {
   // Re-adding from history keeps the title/quantity/section exactly as they were.
   const parsed = exact ? { title: rawTitle.trim(), quantity: exact.quantity ?? "" } : parseQuantity(rawTitle);
@@ -327,7 +327,7 @@ export function addItem(
     id: uid(),
     listId,
     title,
-    notes: "",
+    notes: exact?.notes ?? "",
     quantity,
     section: exact?.section || categorize(title),
     flagged: false,
@@ -408,6 +408,24 @@ export function localHistory(listId: string, section: string | null, limit = 10)
       addedBy: i.addedBy, createdAt: i.createdAt, completedBy: i.completedBy ?? "",
       completedAt: i.completedAt ?? i.updatedAt,
     }));
+}
+
+// ---------- recipe import ----------
+
+export async function requestRecipeImport(input: { url: string } | { text: string }): Promise<RecipeImport> {
+  let res: Response;
+  try {
+    res = await fetch("/api/recipe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new Error("You're offline. Recipe import needs a connection.");
+  }
+  const body = (await res.json().catch(() => ({}))) as RecipeImport & { error?: string };
+  if (!res.ok) throw new Error(body.error ?? "Couldn't import that recipe.");
+  return body;
 }
 
 // ---------- auth ----------
