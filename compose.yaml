@@ -1,0 +1,12 @@
+services:
+  grocery-run:
+    build: .
+    image: grocery-run:latest
+    container_name: grocery-run
+    restart: unless-stopped
+    user: "1000:1000"          # owns ./data on the host, so backups don't need root
+    env_file: .env
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./data:/data
