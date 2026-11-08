@@ -8,13 +8,15 @@ import {
   currentUser, forgotPassword, resetPassword, googleCallback, googleStart, login, logout, me, requireAuth, signup, updateAccount, userFrom,
 } from "./auth.ts";
 import { acceptInvite, inviteFor, onJoin, previewInvite } from "./users.ts";
-import { importRecipe } from "./recipe/index.ts";
+import { importPhoto, importRecipe } from "./recipe/index.ts";
 import { createRecipe, deleteRecipe, editRecipe, getRecipe, listRecipes, recipeShopping, tagRecipe, untagRecipe } from "./recipes.ts";
 import type { Op, ServerMessage } from "../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const app = express();
 app.set("trust proxy", true);
+// Recipe photos are the only big uploads (already shrunk on the phone); everything else stays small.
+app.use("/api/recipe/photo", express.json({ limit: "16mb" }));
 app.use(express.json({ limit: "1mb" }));
 
 // ---------- accounts ----------
@@ -42,6 +44,7 @@ app.get("/api/history", requireAuth, (req, res) => {
 });
 
 app.post("/api/recipe", requireAuth, importRecipe);
+app.post("/api/recipe/photo", requireAuth, importPhoto);
 
 // ---------- recipe box ----------
 

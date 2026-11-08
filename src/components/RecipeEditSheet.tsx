@@ -25,6 +25,7 @@ export function RecipeEditSheet({
   onSaved: (r: Recipe) => void;
 }) {
   const [title, setTitle] = useState("");
+  const [source, setSource] = useState("");
   const [servings, setServings] = useState("");
   const [times, setTimes] = useState<Recipe["times"]>({});
   const [ingredients, setIngredients] = useState("");
@@ -36,6 +37,7 @@ export function RecipeEditSheet({
   useEffect(() => {
     if (!open) return;
     setTitle(recipe.title);
+    setSource(recipe.siteName ?? "");
     setServings(recipe.servings ?? "");
     setTimes(recipe.times);
     setIngredients(toText(recipe.ingredients));
@@ -51,6 +53,7 @@ export function RecipeEditSheet({
       onSaved(
         await editRecipe(recipe.id, {
           title: title.trim(),
+          siteName: source.trim() || null,
           servings: servings.trim() || null,
           times,
           ingredients: fromText(ingredients),
@@ -73,6 +76,10 @@ export function RecipeEditSheet({
         <div className="space-y-1.5">
           <label className={label}>Title</label>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+        </div>
+        <div className="space-y-1.5">
+          <label className={label}>Source</label>
+          <Input value={source} onChange={(e) => setSource(e.target.value)} placeholder="Salt Fat Acid Heat, p. 214 · Grandma's card" />
         </div>
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <div className="space-y-1.5">

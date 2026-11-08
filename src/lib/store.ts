@@ -548,11 +548,11 @@ export function localHistory(listId: string, section: string | null, limit = 10)
 // ---------- recipe import ----------
 
 export async function requestRecipeImport(
-  input: { listId: string } & ({ url: string } | { text: string }),
+  input: { listId: string } & ({ url: string } | { text: string } | { images: { data: string; mediaType: string }[] }),
 ): Promise<RecipeImport> {
   let res: Response;
   try {
-    res = await fetch("/api/recipe", {
+    res = await fetch("images" in input ? "/api/recipe/photo" : "/api/recipe", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(input),
@@ -583,8 +583,15 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
   return data;
 }
 
+let photosEnabled = false;
+/** Whether the server can read recipes from photos (it needs Claude). Known after the first fetchMe. */
+export const canReadPhotos = () => photosEnabled;
+
 export const fetchMe = (invite?: string | null) =>
-  api<AuthInfo>("GET", `/api/me${invite ? `?invite=${encodeURIComponent(invite)}` : ""}`);
+  api<AuthInfo>("GET", `/api/me${invite ? `?invite=${encodeURIComponent(invite)}` : ""}`).then((i) => {
+    photosEnabled = !!i.recipePhotos;
+    return i;
+  });
 
 /** The person who used this phone last, for starting up offline. */
 export const cachedUser = () => safeStorage<User | null>(USER_KEY, null);

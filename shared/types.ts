@@ -46,6 +46,8 @@ export interface AuthInfo {
   firstRun: boolean;
   /** The server can send email (password reset links) */
   email: boolean;
+  /** Recipes can be read from photos (needs Claude) */
+  recipePhotos?: boolean;
 }
 
 export interface InvitePreview {

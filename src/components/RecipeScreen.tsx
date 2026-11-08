@@ -118,8 +118,10 @@ export function RecipeScreen({ id, cook }: { id: string; cook: boolean }) {
               <a href={recipe.url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 underline-offset-2 hover:underline" style={{ color }}>
                 From {[recipe.author, recipe.siteName].filter(Boolean).join(" at ")} <ExternalLink className="size-3.5" />
               </a>
+            ) : recipe.siteName ? (
+              <>From {recipe.siteName}{recipe.author ? ` by ${recipe.author}` : ""}</>
             ) : (
-              <>By {recipe.author ?? recipe.siteName}</>
+              <>By {recipe.author}</>
             )}
           </p>
         )}

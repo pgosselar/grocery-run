@@ -8,7 +8,7 @@ import { existingRecipeFor, toShopping } from "../recipes.ts";
 import { fetchPage, FetchError } from "./fetch.ts";
 import { extractRecipe, stripTags } from "./extract.ts";
 import { parseIngredientsWithRules } from "./ingredients.ts";
-import { claudeEnabled, cleanWithClaude, readPastedWithClaude } from "./claude.ts";
+import { claudeEnabled, cleanWithClaude, readPastedWithClaude, readPhotoWithClaude, type RecipeImage } from "./claude.ts";
 import { isHeading, splitPastedRecipe } from "./split.ts";
 
 const MAX_LINES = 80;
@@ -145,4 +145,74 @@ async function readPasted(base: RecipeDraft, lines: string[], listName: string, 
     cleanedBy: "rules" as const,
     warning: claudeEnabled ? SMART_FAILED : undefined,
   };
+}
+
+const MAX_PHOTOS = 4;
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024; // Claude's limit per image
+const PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+/** POST /api/recipe/photo { listId, images: [{ data (base64), mediaType }] } → same shape as /api/recipe. */
+export async function importPhoto(req: Request, res: Response) {
+  const { images, listId } = (req.body ?? {}) as { images?: unknown; listId?: unknown };
+  const user = currentUser(res);
+  const list = typeof listId === "string" && roleOf(listId, user.id) ? listById(listId) : null;
+  if (!list) return res.status(404).json({ error: "No such list" });
+  if (!claudeEnabled) return res.status(400).json({ error: "Reading recipes from photos needs Claude, which isn't set up on this server." });
+  if (!Array.isArray(images) || !images.length || images.length > MAX_PHOTOS) {
+    return res.status(400).json({ error: `Add between 1 and ${MAX_PHOTOS} photos.` });
+  }
+  const ok = images.every((i): i is RecipeImage => {
+    const img = i as RecipeImage;
+    return (
+      !!img && typeof img.data === "string" && PHOTO_TYPES.has(img.mediaType) &&
+      /^[A-Za-z0-9+/]+=*$/.test(img.data) && img.data.length * 0.75 <= MAX_PHOTO_BYTES
+    );
+  });
+  if (!ok) return res.status(400).json({ error: "One of those photos couldn't be read. Try taking it again." });
+  const sections = list.sections?.length ? list.sections : defaultSections();
+
+  let reading: Awaited<ReturnType<typeof readPhotoWithClaude>>;
+  try {
+    reading = await readPhotoWithClaude(images as RecipeImage[], list.name, sections);
+  } catch (err) {
+    console.error("photo import failed:", err instanceof Error ? err.message : err);
+    return res.status(502).json({ error: "Couldn't read the recipe from that photo just now. Try again in a moment." });
+  }
+  const r = reading.reading;
+  if (!r.found || (!r.ingredients.length && !r.steps.length)) {
+    return res.status(422).json({ error: "Couldn't find a recipe in that photo. Try a closer, well-lit shot of the page." });
+  }
+  const line = (l: { text: string; heading: boolean }): RecipeLine =>
+    l.heading ? { text: l.text.trim().replace(/:$/, ""), heading: true } : { text: l.text.trim() };
+  const draft: RecipeDraft = {
+    title: r.title.trim() || "Recipe from a photo",
+    url: null,
+    siteName: r.source.trim() || null,
+    author: r.author.trim() || null,
+    image: null, // the photo of the page isn't kept: only the transcription
+    description: "",
+    servings: r.servings.trim() || null,
+    times: Object.fromEntries(
+      ([["prep", r.prepTime], ["cook", r.cookTime], ["total", r.totalTime]] as const).flatMap(([k, v]) => {
+        const t = normalizeTime(v);
+        return t ? [[k, t]] : [];
+      }),
+    ),
+    ingredients: r.ingredients.filter((l) => l.text.trim()).map(line),
+    steps: r.steps.filter((l) => l.text.trim()).map(line),
+    notes: r.notes.trim(),
+    shopping: toShopping(reading.ingredients, sections),
+  };
+  const body: RecipeImport = {
+    name: draft.title,
+    url: null,
+    image: null,
+    servings: draft.servings,
+    ingredients: reading.ingredients,
+    cleanedBy: "claude",
+    warning: "Read from a photo. Check the amounts against the page.",
+    draft,
+    existingId: null,
+  };
+  res.json(body);
 }

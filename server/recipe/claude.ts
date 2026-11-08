@@ -163,3 +163,73 @@ function learnedSection(title: string, sections: ListSection[]): string | null {
   const t = title.toLowerCase().trim();
   return sections.find((s) => s.keywords.some((k) => k.trim() === t))?.id ?? null;
 }
+
+// ---------- photos of a printed or handwritten recipe ----------
+
+function photoSchema(sectionNames: [string, ...string[]]) {
+  const line = z.object({
+    text: z.string(),
+    heading: z.boolean().describe("True for a group heading such as 'For the sauce'"),
+  });
+  return z.object({
+    found: z.boolean().describe("False if the photos don't show a recipe"),
+    title: z.string().describe("The recipe's name as printed, else ''"),
+    source: z.string().describe("The book or publication's name if it's printed on the page (running header or footer), else ''"),
+    author: z.string().describe("The author if printed on the page, else ''"),
+    servings: z.string().describe("How many it serves or makes, if stated, else ''"),
+    prepTime: z.string().describe("Prep time if stated, else ''"),
+    cookTime: z.string().describe("Cook or bake time if stated, else ''"),
+    totalTime: z.string().describe("Total time if stated, else ''"),
+    ingredients: z.array(line).describe("Every ingredient line exactly as written, in order, with group headings"),
+    steps: z.array(line).describe("Every instruction, one entry per step or paragraph, in order, without the step numbers"),
+    notes: z.string().describe("Headnote, tips or variations printed with the recipe, else ''"),
+    items: itemsSchema(sectionNames).describe("Shopping items; `sources` are 1-based positions in your ingredients list"),
+  });
+}
+
+const PHOTO_SYSTEM = `${SYSTEM}
+
+This time you're given photos of a recipe: a cookbook page, a magazine clipping or a handwritten card. Recipes can run across several photos, in order. First transcribe it faithfully: copy ingredient lines and steps as written, keeping amounts and fractions exactly as printed (write ½ as 1/2). Don't invent anything that isn't on the page; if a word is unreadable, give your best reading. Leave out page numbers, running headers and photo captions. Then produce shopping items from the ingredient lines.`;
+
+export type PhotoReading = z.infer<ReturnType<typeof photoSchema>>;
+
+export interface RecipeImage {
+  data: string;
+  mediaType: "image/jpeg" | "image/png" | "image/webp";
+}
+
+/** Read a recipe from photos: the transcription plus the shopping items, in one call. */
+export async function readPhotoWithClaude(
+  images: RecipeImage[],
+  listName: string,
+  sections: ListSection[],
+): Promise<{ reading: PhotoReading; ingredients: ParsedIngredient[] }> {
+  if (!client) throw new Error("Claude is not configured");
+  const { names, idByName, guide } = sectionContext(sections);
+  const response = await client.beta.messages.parse({
+    model: MODEL,
+    max_tokens: 16000,
+    output_config: { effort: "low", format: betaZodOutputFormat(photoSchema(names)) },
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    system: PHOTO_SYSTEM,
+    messages: [
+      {
+        role: "user",
+        content: [
+          ...images.map((img) => ({ type: "image" as const, source: { type: "base64" as const, media_type: img.mediaType, data: img.data } })),
+          {
+            type: "text" as const,
+            text: `Store list: ${listName}\nSections, in store order:\n${guide}\n\n${images.length > 1 ? `These ${images.length} photos are one recipe, in order.` : "This photo is one recipe."}`,
+          },
+        ],
+      },
+    ],
+  });
+  if (response.stop_reason === "refusal") throw new Error("Claude declined to read this photo");
+  if (response.stop_reason === "max_tokens") throw new Error("Claude's answer was cut off");
+  const reading = response.parsed_output;
+  if (!reading) throw new Error("Claude returned nothing usable");
+  const lines = reading.ingredients.map((l) => l.text);
+  return { reading, ingredients: toIngredients(reading.items, lines, sections, idByName) };
+}

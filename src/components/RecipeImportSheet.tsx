@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, BookOpen, Check, ChefHat, Link2, Loader2, Sparkles, TextCursorInput } from "lucide-react";
+import { AlertTriangle, BookOpen, Camera, Check, ChefHat, ImagePlus, Link2, Loader2, Sparkles, TextCursorInput, X } from "lucide-react";
 import type { Recipe, RecipeImport } from "../../shared/types";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
-import { addItem, listItems, requestRecipeImport, sortedLists, useStore } from "@/lib/store";
+import { addItem, canReadPhotos, listItems, requestRecipeImport, sortedLists, useStore } from "@/lib/store";
+import { prepareImage, type PreparedImage } from "@/lib/images";
 import { recipeShopping, saveRecipe, tagRecipe } from "@/lib/recipes";
 import { sectionRank } from "@/lib/sections";
 import { LIST_COLORS } from "@/lib/colors";
@@ -12,6 +13,8 @@ import { navigate } from "@/lib/router";
 import { showToast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { Toggle } from "./ListEditor";
+
+const MAX_PHOTOS = 4;
 
 type Row = RecipeImport["ingredients"][number] & { key: number; selected: boolean; onList: boolean };
 
@@ -36,7 +39,9 @@ export function RecipeImportSheet({
   const state = useStore();
   const lists = sortedLists(state);
   const [target, setTarget] = useState("");
-  const [mode, setMode] = useState<"url" | "text">("url");
+  const [mode, setMode] = useState<"url" | "text" | "photo">("url");
+  const [photos, setPhotos] = useState<PreparedImage[]>([]);
+  const [preparing, setPreparing] = useState(false);
   const [url, setUrl] = useState("");
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(false);
@@ -59,7 +64,26 @@ export function RecipeImportSheet({
     setError(null);
     setLoading(false);
     setSave(true);
+    setPhotos((ps) => {
+      ps.forEach((p) => URL.revokeObjectURL(p.preview));
+      return [];
+    });
   }, [open]);
+
+  const addPhotos = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setPreparing(true);
+    setError(null);
+    try {
+      const room = MAX_PHOTOS - photos.length;
+      const ready = await Promise.all([...files].slice(0, room).map(prepareImage));
+      setPhotos((ps) => [...ps, ...ready].slice(0, MAX_PHOTOS));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't open that photo.");
+    } finally {
+      setPreparing(false);
+    }
+  };
 
   const openTitles = useMemo(
     () => new Set(listItems(state, target).filter((i) => !i.completed).map((i) => i.title.toLowerCase())),
@@ -97,7 +121,13 @@ export function RecipeImportSheet({
     setLoading(true);
     setError(null);
     try {
-      const r = await requestRecipeImport(mode === "url" ? { listId: target, url } : { listId: target, text });
+      const r = await requestRecipeImport(
+        mode === "url"
+          ? { listId: target, url }
+          : mode === "text"
+            ? { listId: target, text }
+            : { listId: target, images: photos.map(({ data, mediaType }) => ({ data, mediaType })) },
+      );
       show(r);
       if (!r.ingredients.length && !r.draft?.steps.length) setError("Found the recipe, but no ingredients in it.");
     } catch (e) {
@@ -137,7 +167,11 @@ export function RecipeImportSheet({
     }
   };
 
-  const canFetch = !!target && (mode === "url" ? /^https?:\/\/\S+\.\S+/i.test(url.trim()) : text.trim().length > 2);
+  const canFetch =
+    !!target &&
+    !preparing &&
+    (mode === "url" ? /^https?:\/\/\S+\.\S+/i.test(url.trim()) : mode === "text" ? text.trim().length > 2 : photos.length > 0);
+  const modes = canReadPhotos() ? (["url", "text", "photo"] as const) : (["url", "text"] as const);
 
   const listPicker = (
     <label className="flex items-center justify-between gap-3 rounded-xl bg-card px-4 py-2.5 shadow-sm">
@@ -177,7 +211,7 @@ export function RecipeImportSheet({
           ) : (
             <>
               <div className="flex rounded-lg bg-muted p-1 text-sm font-medium">
-                {(["url", "text"] as const).map((m) => (
+                {modes.map((m) => (
                   <button
                     key={m}
                     onClick={() => {
@@ -190,8 +224,8 @@ export function RecipeImportSheet({
                       mode === m ? "bg-card shadow-sm" : "text-muted-foreground",
                     )}
                   >
-                    {m === "url" ? <Link2 className="size-4" /> : <TextCursorInput className="size-4" />}
-                    {m === "url" ? "Recipe link" : "Paste recipe"}
+                    {m === "url" ? <Link2 className="size-4" /> : m === "text" ? <TextCursorInput className="size-4" /> : <Camera className="size-4" />}
+                    {m === "url" ? "Link" : m === "text" ? "Paste" : "Photo"}
                   </button>
                 ))}
               </div>
@@ -209,6 +243,51 @@ export function RecipeImportSheet({
                   onChange={(e) => setUrl(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && canFetch && !loading && fetchRecipe()}
                 />
+              ) : mode === "photo" ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {photos.map((p, i) => (
+                    <div key={p.preview} className="relative aspect-[3/4] overflow-hidden rounded-xl bg-muted">
+                      <img src={p.preview} alt={`Page ${i + 1}`} className="size-full object-cover" />
+                      <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/60 px-2 py-0.5 text-xs font-medium text-white">
+                        {photos.length > 1 ? `Page ${i + 1}` : "Photo"}
+                      </span>
+                      <button
+                        aria-label={`Remove page ${i + 1}`}
+                        disabled={loading}
+                        onClick={() => {
+                          URL.revokeObjectURL(p.preview);
+                          setPhotos((ps) => ps.filter((x) => x !== p));
+                        }}
+                        className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 text-white"
+                      >
+                        <X className="size-4" />
+                      </button>
+                    </div>
+                  ))}
+                  {photos.length < MAX_PHOTOS && (
+                    <label
+                      className={cn(
+                        "flex aspect-[3/4] cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed text-center text-sm font-medium",
+                        photos.length === 0 && "col-span-2 aspect-auto py-10",
+                        (loading || preparing) && "pointer-events-none opacity-50",
+                      )}
+                      style={{ color }}
+                    >
+                      {preparing ? <Loader2 className="size-7 animate-spin" /> : photos.length ? <ImagePlus className="size-7" /> : <Camera className="size-8" />}
+                      {photos.length ? "Add the next page" : "Take or choose a photo"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="sr-only"
+                        onChange={(e) => {
+                          void addPhotos(e.target.files);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  )}
+                </div>
               ) : (
                 <Textarea
                   autoFocus
@@ -227,12 +306,14 @@ export function RecipeImportSheet({
 
               <Button className="w-full" size="lg" disabled={!canFetch || loading} onClick={fetchRecipe} style={{ backgroundColor: color }}>
                 {loading ? <Loader2 className="animate-spin" /> : <ChefHat />}
-                {loading ? "Reading the recipe…" : "Get Ingredients"}
+                {loading ? (mode === "photo" ? "Reading the photo… (10–20 seconds)" : "Reading the recipe…") : mode === "photo" ? "Read Recipe" : "Get Ingredients"}
               </Button>
               <p className="text-center text-xs text-muted-foreground">
                 {mode === "url"
                   ? "Works with many recipe sites. Some big ones refuse automatic readers; for those, copy the recipe and paste it."
-                  : "Paste a whole recipe (title, ingredients and steps) to save it, or just the ingredients."}
+                  : mode === "text"
+                    ? "Paste a whole recipe (title, ingredients and steps) to save it, or just the ingredients."
+                    : "A cookbook page, a clipping or a handwritten card. If the recipe runs onto another page, add a photo of each. Only the text is kept, not the photos."}
               </p>
             </>
           )}

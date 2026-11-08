@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { claudeEnabled } from "./recipe/claude.ts";
 import type { NextFunction, Request, Response } from "express";
 import type { IncomingMessage } from "node:http";
 import type { AuthInfo, User } from "../shared/types.ts";
@@ -90,6 +91,7 @@ export function me(req: Request, res: Response) {
     signupOpen: signupAllowed(invite),
     firstRun: userCount() === 0,
     email: emailEnabled,
+    recipePhotos: claudeEnabled,
   };
   res.json(info);
 }
