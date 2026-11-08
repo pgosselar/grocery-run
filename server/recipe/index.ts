@@ -1,5 +1,8 @@
 import type { Request, Response } from "express";
 import type { ParsedIngredient, RecipeImport } from "../../shared/types.ts";
+import { defaultSections } from "../../shared/sections.ts";
+import { listById, roleOf } from "../db.ts";
+import { currentUser } from "../auth.ts";
 import { fetchPage, FetchError } from "./fetch.ts";
 import { extractRecipe, stripTags } from "./extract.ts";
 import { parseIngredientsWithRules } from "./ingredients.ts";
@@ -7,9 +10,12 @@ import { claudeEnabled, cleanWithClaude } from "./claude.ts";
 
 const MAX_LINES = 80;
 
-/** POST /api/recipe { url } or { text } → cleaned ingredients for the preview screen. */
+/** POST /api/recipe { listId, url } or { listId, text } → cleaned ingredients for the preview screen. */
 export async function importRecipe(req: Request, res: Response) {
-  const { url, text } = (req.body ?? {}) as { url?: unknown; text?: unknown };
+  const { url, text, listId } = (req.body ?? {}) as { url?: unknown; text?: unknown; listId?: unknown };
+  const list = typeof listId === "string" && roleOf(listId, currentUser(res).id) ? listById(listId) : null;
+  if (!list) return res.status(404).json({ error: "No such list" });
+  const sections = list.sections?.length ? list.sections : defaultSections();
   let name = "Recipe";
   let lines: string[] = [];
   let image: string | null = null;
@@ -47,15 +53,15 @@ export async function importRecipe(req: Request, res: Response) {
 
   if (claudeEnabled) {
     try {
-      ingredients = await cleanWithClaude(name, lines);
+      ingredients = await cleanWithClaude(name, lines, list.name, sections);
       cleanedBy = "claude";
     } catch (err) {
       console.error("Claude cleanup failed, using rules:", err instanceof Error ? err.message : err);
-      ingredients = parseIngredientsWithRules(lines);
+      ingredients = parseIngredientsWithRules(lines, sections);
       warning = "Smart cleanup wasn't available, so these were tidied with basic rules. Double-check them.";
     }
   } else {
-    ingredients = parseIngredientsWithRules(lines);
+    ingredients = parseIngredientsWithRules(lines, sections);
   }
 
   const body: RecipeImport = { name, url: finalUrl, image, servings, ingredients, cleanedBy, warning };

@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChefHat, ChevronLeft, Ellipsis, Eye, EyeOff, History, Info, LayoutList, Plus, Rows3, Trash2 } from "lucide-react";
+import {
+  ChefHat, ChevronLeft, Ellipsis, Eye, EyeOff, History, Info, LayoutList, ListOrdered, Plus, Rows3, Trash2, UserPlus, Users,
+} from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import type { Item } from "../../shared/types";
 import { addItem, clearCompleted, itemHistory, listItems, reorderItems, updateList, useStore } from "@/lib/store";
 import { goBack } from "@/lib/router";
 import { LIST_COLORS } from "@/lib/colors";
-import { sectionRank } from "@/lib/sections";
+import { resolveSection, sectionName } from "@/lib/sections";
 import { safeStorage, saveStorage } from "@/lib/utils";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
@@ -17,6 +19,8 @@ import { ListEditor } from "./ListEditor";
 import { HistorySheet } from "./HistorySheet";
 import { RecipeImportSheet } from "./RecipeImportSheet";
 import { SyncBadge } from "./SyncBadge";
+import { ShareSheet } from "./ShareSheet";
+import { SectionsSheet } from "./SectionsSheet";
 
 const LINGER_MS = 1600;
 
@@ -46,6 +50,8 @@ export function ListScreen({ id }: { id: string }) {
   // undefined = closed, null = whole list, string = a section
   const [historyFor, setHistoryFor] = useState<string | null | undefined>(undefined);
   const [importOpen, setImportOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [sectionsOpen, setSectionsOpen] = useState(false);
 
   useEffect(() => {
     if (state.loaded && !list) goBack();
@@ -58,6 +64,8 @@ export function ListScreen({ id }: { id: string }) {
 
   if (!list) return null;
   const color = LIST_COLORS[list.color];
+  const sections = list.sections;
+  const shared = (state.members[id]?.length ?? 1) > 1;
 
   const visible = items.filter((i) => !i.completed || showCompleted || lingering.has(i.id));
   const completedCount = items.filter((i) => i.completed).length;
@@ -65,11 +73,16 @@ export function ListScreen({ id }: { id: string }) {
 
   const groups: { section: string; items: Item[] }[] = [];
   if (list.grouped) {
+    // In this list's own section order, i.e. the way you walk this store.
     const by = new Map<string, Item[]>();
-    for (const i of visible) by.set(i.section, [...(by.get(i.section) ?? []), i]);
-    [...by.entries()]
-      .sort((a, b) => sectionRank(a[0]) - sectionRank(b[0]))
-      .forEach(([section, its]) => groups.push({ section, items: sortItems(its) }));
+    for (const i of visible) {
+      const sid = resolveSection(sections, i.section);
+      by.set(sid, [...(by.get(sid) ?? []), i]);
+    }
+    for (const s of sections) {
+      const its = by.get(s.id);
+      if (its) groups.push({ section: s.id, items: sortItems(its) });
+    }
   } else {
     groups.push({ section: "", items: visible });
   }
@@ -89,8 +102,16 @@ export function ListScreen({ id }: { id: string }) {
           <button className="flex items-center text-[17px]" style={{ color }} onClick={goBack}>
             <ChevronLeft className="size-7" strokeWidth={2.25} /> Lists
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <SyncBadge />
+            <button
+              className="flex size-9 items-center justify-center rounded-full"
+              style={{ color }}
+              aria-label={shared ? "People on this list" : "Share list"}
+              onClick={() => setShareOpen(true)}
+            >
+              {shared ? <Users className="size-5.5" /> : <UserPlus className="size-5.5" />}
+            </button>
             <DropdownMenu>
               <DropdownMenuTrigger
                 className="flex size-9 items-center justify-center rounded-full outline-none"
@@ -102,6 +123,12 @@ export function ListScreen({ id }: { id: string }) {
               <DropdownMenuContent>
                 <DropdownMenuItem onSelect={() => setInfoOpen(true)}>
                   List Info <Info />
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setShareOpen(true)}>
+                  Share List <UserPlus />
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setSectionsOpen(true)}>
+                  Edit Sections <ListOrdered />
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => updateList(id, { grouped: !list.grouped })}>
                   {list.grouped ? "Ungroup Sections" : "Group by Section"}
@@ -155,12 +182,12 @@ export function ListScreen({ id }: { id: string }) {
                 <section key={g.section || "all"}>
                   <div className="mb-1.5 flex items-center justify-between px-1">
                     <h2 className="text-[15px] font-semibold" style={{ color }}>
-                      {g.section || (g.items.length ? "Items" : "")}
+                      {g.section ? sectionName(sections, g.section) : g.items.length ? "Items" : ""}
                     </h2>
                     {(g.section || g.items.length > 0) && (
                       <button
                         onClick={() => setHistoryFor(g.section || null)}
-                        aria-label={`Recently completed${g.section ? ` in ${g.section}` : ""}`}
+                        aria-label={`Recently completed${g.section ? ` in ${sectionName(sections, g.section)}` : ""}`}
                         className="-mr-1 flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-muted-foreground active:bg-accent"
                       >
                         <History className="size-4" /> History
@@ -201,6 +228,8 @@ export function ListScreen({ id }: { id: string }) {
 
       <ItemDetail itemId={detailId} onClose={() => setDetailId(null)} color={color} />
       <ListEditor open={infoOpen} onOpenChange={setInfoOpen} list={list} />
+      <ShareSheet list={list} open={shareOpen} onClose={() => setShareOpen(false)} color={color} />
+      <SectionsSheet list={list} open={sectionsOpen} onClose={() => setSectionsOpen(false)} color={color} />
       <RecipeImportSheet open={importOpen} onClose={() => setImportOpen(false)} listId={id} color={color} />
       <HistorySheet listId={id} section={historyFor} onClose={() => setHistoryFor(undefined)} color={color} />
     </div>

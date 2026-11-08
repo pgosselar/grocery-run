@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, GripVertical, Info, Plus, ShoppingBasket } from "lucide-react";
+import { ChevronRight, GripVertical, Info, Plus, ShoppingBasket, Users } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -9,6 +9,8 @@ import { navigate } from "@/lib/router";
 import { LIST_COLORS } from "@/lib/colors";
 import { ListIcon } from "@/lib/icons";
 import { ListEditor } from "./ListEditor";
+import { AccountSheet } from "./AccountSheet";
+import { Avatar } from "./ShareSheet";
 import { SyncBadge } from "./SyncBadge";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +26,7 @@ export function ListsScreen() {
   const [editing, setEditing] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editList, setEditList] = useState<GroceryList | undefined>();
+  const [accountOpen, setAccountOpen] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -39,7 +42,10 @@ export function ListsScreen() {
   return (
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col">
       <header className="pt-safe sticky top-0 z-10 bg-background/85 px-4 pb-2 backdrop-blur-xl">
-        <div className="flex h-10 items-center justify-between">
+        <div className="flex h-10 items-center justify-between gap-2">
+          <button aria-label="Account" onClick={() => setAccountOpen(true)} className="rounded-full active:opacity-70">
+            <Avatar name={state.user?.name ?? ""} color="var(--primary)" className="size-8" />
+          </button>
           <SyncBadge />
           <div className="flex-1" />
           {lists.length > 0 && (
@@ -70,6 +76,7 @@ export function ListsScreen() {
                       key={l.id}
                       list={l}
                       count={counts[l.id] ?? 0}
+                      sharedWith={(state.members[l.id]?.length ?? 1) - 1}
                       editing={editing}
                       last={idx === lists.length - 1}
                       onInfo={() => { setEditList(l); setEditorOpen(true); }}
@@ -93,6 +100,7 @@ export function ListsScreen() {
         </div>
       </footer>
 
+      <AccountSheet open={accountOpen} onClose={() => setAccountOpen(false)} />
       <ListEditor
         open={editorOpen}
         onOpenChange={setEditorOpen}
@@ -106,12 +114,14 @@ export function ListsScreen() {
 function ListRow({
   list,
   count,
+  sharedWith,
   editing,
   last,
   onInfo,
 }: {
   list: GroceryList;
   count: number;
+  sharedWith: number;
   editing: boolean;
   last: boolean;
   onInfo: () => void;
@@ -137,7 +147,14 @@ function ListRow({
           <ListIcon name={list.icon} className="size-4.5" />
         </span>
         <span className={cn("flex flex-1 items-center gap-2 py-1.5 pr-3", !last && "border-b")}>
-          <span className="flex-1 truncate text-[17px]">{list.name}</span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[17px]">{list.name}</span>
+            {sharedWith > 0 && (
+              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Users className="size-3.5" /> Shared with {sharedWith}
+              </span>
+            )}
+          </span>
           {editing ? (
             <>
               <Info className="text-primary size-5.5" />
@@ -170,7 +187,10 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
         <ShoppingBasket className="size-10" />
       </div>
       <h2 className="text-xl font-semibold">No lists yet</h2>
-      <p className="mt-1 text-muted-foreground">Make a list for the weekly shop, Costco, the farmers market…</p>
+      <p className="mt-1 text-muted-foreground">
+        Make a list for each store: the weekly shop, Costco, Trader Joe's… Each one gets its own sections, and you can share
+        it with family.
+      </p>
       <button onClick={onCreate} className="bg-primary text-primary-foreground mt-6 rounded-full px-6 py-3 font-medium">
         Create a List
       </button>

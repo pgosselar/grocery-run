@@ -1,6 +1,9 @@
 import { useSyncExternalStore } from "react";
-import type { GroceryList, HistoryEntry, Item, ListColor, Op, RecipeImport, ServerMessage, Snapshot } from "../../shared/types";
-import { categorize, parseQuantity } from "./sections";
+import type {
+  AuthInfo, GroceryList, HistoryEntry, InvitePreview, Item, ListColor, ListSection, Member, Op, RecipeImport,
+  ServerMessage, Snapshot, User,
+} from "../../shared/types";
+import { OTHER, categorize, defaultSections, learnSection, parseQuantity, resolveSection } from "./sections";
 import { safeStorage, saveStorage, uid } from "./utils";
 
 /*
@@ -14,14 +17,16 @@ import { safeStorage, saveStorage, uid } from "./utils";
 export interface State {
   lists: Record<string, GroceryList>;
   items: Record<string, Item>;
+  members: Record<string, Member[]>;
+  user: User | null;
   loaded: boolean;
   online: boolean;
   pending: number;
-  authError: boolean;
 }
 
-const CACHE_KEY = "gr.cache.v1";
-const OUTBOX_KEY = "gr.outbox.v1";
+const CACHE_KEY = "gr.cache.v2";
+const OUTBOX_KEY = "gr.outbox.v2";
+const USER_KEY = "gr.user";
 const CLIENT_KEY = "gr.client";
 
 const clientId: string = (() => {
@@ -32,23 +37,29 @@ const clientId: string = (() => {
   return id;
 })();
 
-let userName = "";
-export function setUserName(name: string) {
-  userName = name;
+interface Cache {
+  userId: string;
+  lists: GroceryList[];
+  items: Item[];
+  members: Record<string, Member[]>;
+  version: number;
 }
 
-const cached = safeStorage<{ lists: GroceryList[]; items: Item[]; version: number } | null>(CACHE_KEY, null);
+const cached = safeStorage<Cache | null>(CACHE_KEY, null);
 let outbox: Op[] = safeStorage<Op[]>(OUTBOX_KEY, []);
 let serverVersion = cached?.version ?? -1;
 
 let state: State = {
   lists: Object.fromEntries((cached?.lists ?? []).map((l) => [l.id, l])),
   items: Object.fromEntries((cached?.items ?? []).map((i) => [i.id, i])),
+  members: cached?.members ?? {},
+  user: safeStorage<User | null>(USER_KEY, null),
   loaded: !!cached,
   online: false,
   pending: outbox.length,
-  authError: false,
 };
+
+const userName = () => state.user?.name ?? "";
 
 const listeners = new Set<() => void>();
 let persistTimer: ReturnType<typeof setTimeout> | undefined;
@@ -61,11 +72,23 @@ function setState(next: Partial<State>) {
 }
 
 function persist() {
+  if (!state.user) return;
   saveStorage(CACHE_KEY, {
+    userId: state.user.id,
     lists: Object.values(state.lists),
     items: Object.values(state.items),
+    members: state.members,
     version: serverVersion,
-  });
+  } satisfies Cache);
+}
+
+/** Forget everything on this phone (signing out, or a different person signing in). */
+function resetLocal() {
+  outbox = [];
+  serverVersion = -1;
+  saveStorage(OUTBOX_KEY, []);
+  saveStorage(CACHE_KEY, null);
+  state = { ...state, lists: {}, items: {}, members: {}, loaded: false, pending: 0 };
 }
 
 export function useStore(): State {
@@ -92,7 +115,15 @@ function applyOpsLocal(ops: Op[]) {
       case "list.put": {
         const cur = lists[op.list.id];
         if (cur && cur.updatedAt > op.list.updatedAt) break;
-        lists = { ...lists, [op.list.id]: op.list };
+        // Position is per person: keep ours when someone else edits a shared list.
+        lists = { ...lists, [op.list.id]: { ...op.list, position: cur?.position ?? op.list.position } };
+        break;
+      }
+      case "list.order": {
+        lists = { ...lists };
+        op.ids.forEach((id, position) => {
+          if (lists[id]) lists[id] = { ...lists[id], position };
+        });
         break;
       }
       case "list.delete": {
@@ -151,12 +182,14 @@ async function flush(): Promise<boolean> {
       body: JSON.stringify({ ops: batch, clientId }),
     });
     if (res.status === 401) {
-      setState({ authError: true });
+      markSignedOut();
       return false;
     }
     if (!res.ok) throw new Error(`ops ${res.status}`);
-    const { version } = (await res.json()) as { version: number };
+    const { version, rejected } = (await res.json()) as { version: number; rejected: number };
     serverVersion = version;
+    // Something we did locally wasn't allowed (e.g. we were removed from that list): resync.
+    if (rejected) setTimeout(() => void refresh(), 0);
     outbox = outbox.slice(batch.length);
     saveStorage(OUTBOX_KEY, outbox);
     setState({ pending: outbox.length });
@@ -176,7 +209,7 @@ async function refresh() {
   await flush();
   try {
     const res = await fetch("/api/state");
-    if (res.status === 401) return setState({ authError: true });
+    if (res.status === 401) return markSignedOut();
     if (!res.ok) return;
     const snap = (await res.json()) as Snapshot;
     serverVersion = snap.version;
@@ -185,6 +218,7 @@ async function refresh() {
       ...state,
       lists: Object.fromEntries(snap.lists.map((l) => [l.id, l])),
       items: Object.fromEntries(snap.items.map((i) => [i.id, i])),
+      members: snap.members,
     };
     applyOpsLocal(outbox);
     setState({ loaded: true });
@@ -212,34 +246,68 @@ function connect() {
       else setState({ loaded: true });
     } else if (msg.type === "ops") {
       serverVersion = msg.version;
-      if (msg.origin !== clientId) applyOpsLocal(msg.ops);
+      if (msg.origin !== clientId) {
+        // A list we haven't seen (made on another of our devices): fetch it with its members.
+        const fresh = msg.ops.some((o) => o.type === "list.put" && !state.lists[o.list.id]);
+        applyOpsLocal(msg.ops);
+        if (fresh) void refresh();
+      }
+    } else if (msg.type === "refresh") {
+      void refresh();
     }
   };
   sock.onclose = () => {
     if (ws === sock) ws = null;
     setState({ online: false });
+    if (!syncing) return;
     wsDelay = Math.min(wsDelay * 2, 30_000);
     wsTimer = setTimeout(connect, wsDelay);
   };
   sock.onerror = () => sock.close();
 }
 
-export function startSync() {
-  setState({ authError: false });
+let syncing = false;
+let lastUserId = cached?.userId ?? state.user?.id ?? null;
+
+export function startSync(user: User) {
+  // A different person signing in on this phone mustn't see (or send) the last person's data.
+  if (lastUserId && lastUserId !== user.id) resetLocal();
+  lastUserId = user.id;
+  saveStorage(USER_KEY, user);
+  setState({ user });
+  syncing = true;
   connect();
   void refresh();
+}
+
+/** Session expired or was revoked: show sign-in, but keep queued changes in case the same person signs back in. */
+export function markSignedOut() {
+  stopSync();
+  setState({ user: null });
+}
+
+function stopSync() {
+  syncing = false;
+  const sock = ws;
+  ws = null;
+  clearTimeout(wsTimer);
+  if (sock) {
+    sock.onclose = null;
+    sock.close();
+  }
 }
 
 if (typeof window !== "undefined") {
   // iOS suspends PWAs in the background and silently kills sockets.
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible") {
+    if (document.visibilityState === "visible" && syncing) {
       wsDelay = 1000;
       connect();
       void refresh();
     }
   });
   window.addEventListener("online", () => {
+    if (!syncing) return;
     wsDelay = 1000;
     connect();
     scheduleFlush(0);
@@ -277,16 +345,29 @@ export function itemHistory(s: State): string[] {
 
 const now = () => Date.now();
 
-export function createList(input: { name: string; color: ListColor; icon: string; grouped: boolean }): string {
+export function createList(input: {
+  name: string;
+  color: ListColor;
+  icon: string;
+  grouped: boolean;
+  /** Copy store sections from this list; standard sections if not given */
+  sectionsFrom?: string;
+}): string {
   const lists = Object.values(state.lists);
   const t = now();
+  const { sectionsFrom, ...rest } = input;
+  const source = sectionsFrom ? state.lists[sectionsFrom]?.sections : undefined;
   const list: GroceryList = {
     id: uid(),
-    ...input,
+    ...rest,
+    sections: source ? structuredClone(source) : defaultSections(),
     position: lists.length ? Math.max(...lists.map((l) => l.position)) + 1 : 0,
     createdAt: t,
     updatedAt: t,
   };
+  if (state.user) {
+    setState({ members: { ...state.members, [list.id]: [{ userId: state.user.id, name: state.user.name, role: "owner" }] } });
+  }
   commit([{ type: "list.put", list }]);
   return list.id;
 }
@@ -302,12 +383,23 @@ export function deleteList(id: string) {
 }
 
 export function reorderLists(ids: string[]) {
+  commit([{ type: "list.order", ids }]);
+}
+
+export function sectionsOf(listId: string): ListSection[] {
+  return state.lists[listId]?.sections ?? defaultSections();
+}
+
+/** Save edited sections. Items in a section that was deleted move to the catch-all section. */
+export function saveSections(listId: string, sections: ListSection[]) {
+  const list = state.lists[listId];
+  if (!list) return;
   const t = now();
-  const ops: Op[] = [];
-  ids.forEach((id, position) => {
-    const l = state.lists[id];
-    if (l && l.position !== position) ops.push({ type: "list.put", list: { ...l, position, updatedAt: t } });
-  });
+  const keep = new Set(sections.map((s) => s.id));
+  const ops: Op[] = [{ type: "list.put", list: { ...list, sections, updatedAt: t } }];
+  for (const it of listItems(state, listId)) {
+    if (!keep.has(it.section)) ops.push({ type: "item.put", item: { ...it, section: resolveSection(sections, OTHER), updatedAt: t } });
+  }
   commit(ops);
 }
 
@@ -329,12 +421,13 @@ export function addItem(
     title,
     notes: exact?.notes ?? "",
     quantity,
-    section: exact?.section || categorize(title),
+    section: exact?.section ? resolveSection(sectionsOf(listId), exact.section) : categorize(title, sectionsOf(listId)),
     flagged: false,
     completed: false,
     completedAt: null,
     position,
-    addedBy: userName,
+    addedBy: userName(),
+    addedById: state.user?.id,
     createdAt: t,
     updatedAt: t,
   };
@@ -346,11 +439,22 @@ export function updateItem(id: string, patch: Partial<Omit<Item, "id">>) {
   const cur = state.items[id];
   if (!cur) return;
   const next = { ...cur, ...patch, updatedAt: now() };
-  // Re-categorize on rename unless the section was set by hand in this same patch.
-  if (patch.title !== undefined && patch.section === undefined && cur.section === categorize(cur.title)) {
-    next.section = categorize(next.title);
+  const ops: Op[] = [];
+  const sections = sectionsOf(next.listId);
+  if (next.listId !== cur.listId) {
+    // Moved to another store's list: sort it the way that list sorts things.
+    next.section = categorize(next.title, sections);
+  } else if (patch.section !== undefined && patch.section !== cur.section) {
+    // Moved by hand: this list remembers, so next time it goes straight there.
+    const learned = learnSection(sections, next.title, patch.section);
+    const list = state.lists[next.listId];
+    if (learned !== sections && list) ops.push({ type: "list.put", list: { ...list, sections: learned, updatedAt: now() } });
+  } else if (patch.title !== undefined && cur.section === categorize(cur.title, sections)) {
+    // Renamed and its section was the automatic one: re-sort.
+    next.section = categorize(next.title, sections);
   }
-  commit([{ type: "item.put", item: next }]);
+  ops.push({ type: "item.put", item: next });
+  commit(ops);
 }
 
 export function toggleItem(id: string) {
@@ -360,7 +464,7 @@ export function toggleItem(id: string) {
     id,
     cur.completed
       ? { completed: false, completedAt: null, completedBy: "" }
-      : { completed: true, completedAt: now(), completedBy: userName },
+      : { completed: true, completedAt: now(), completedBy: userName(), completedById: state.user?.id },
   );
 }
 
@@ -412,7 +516,9 @@ export function localHistory(listId: string, section: string | null, limit = 10)
 
 // ---------- recipe import ----------
 
-export async function requestRecipeImport(input: { url: string } | { text: string }): Promise<RecipeImport> {
+export async function requestRecipeImport(
+  input: { listId: string } & ({ url: string } | { text: string }),
+): Promise<RecipeImport> {
   let res: Response;
   try {
     res = await fetch("/api/recipe", {
@@ -430,18 +536,67 @@ export async function requestRecipeImport(input: { url: string } | { text: strin
 
 // ---------- auth ----------
 
-export async function fetchMe(): Promise<{ authEnabled: boolean; session: { name: string } | null }> {
-  const res = await fetch("/api/me");
-  return res.json();
+async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error("Can't reach the server. Check your connection.");
+  }
+  const data = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok) throw new Error(data.error ?? `Something went wrong (${res.status})`);
+  return data;
 }
 
-export async function login(name: string, passcode: string): Promise<string | null> {
-  const res = await fetch("/api/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, passcode }),
-  });
-  if (res.ok) return null;
-  const body = (await res.json().catch(() => ({}))) as { error?: string };
-  return body.error ?? "Couldn't sign in";
+export const fetchMe = (invite?: string | null) =>
+  api<AuthInfo>("GET", `/api/me${invite ? `?invite=${encodeURIComponent(invite)}` : ""}`);
+
+/** The person who used this phone last, for starting up offline. */
+export const cachedUser = () => safeStorage<User | null>(USER_KEY, null);
+
+export function signIn(mode: "login" | "signup", body: { email: string; password: string; name?: string; invite?: string | null }) {
+  return api<{ user: User; listId: string | null }>("POST", `/api/auth/${mode}`, body);
+}
+
+export const requestPasswordReset = (email: string) => api("POST", "/api/auth/forgot", { email });
+
+export const resetPassword = (token: string, password: string) =>
+  api<{ user: User; listId: null }>("POST", "/api/auth/reset", { token, password });
+
+export async function signOut() {
+  await api("POST", "/api/auth/logout").catch(() => {});
+  stopSync();
+  resetLocal();
+  saveStorage(USER_KEY, null);
+  setState({ user: null });
+}
+
+export async function updateAccount(patch: { name?: string; currentPassword?: string; newPassword?: string }) {
+  const { user } = await api<{ user: User }>("PATCH", "/api/account", patch);
+  saveStorage(USER_KEY, user);
+  setState({ user });
+  if (patch.name) void refresh(); // member names on shared lists
+  return user;
+}
+
+// ---------- sharing ----------
+
+export const getInviteLink = (listId: string, reset = false) =>
+  api<{ url: string; expiresAt: number }>(reset ? "POST" : "GET", `/api/lists/${listId}/invite${reset ? "/reset" : ""}`);
+
+export const previewInvite = (token: string) => api<InvitePreview>("GET", `/api/invites/${encodeURIComponent(token)}`);
+
+export async function acceptInvite(token: string): Promise<string> {
+  const { listId } = await api<{ listId: string }>("POST", `/api/invites/${encodeURIComponent(token)}/accept`);
+  await refresh();
+  return listId;
+}
+
+export async function removeMember(listId: string, userId: string) {
+  await api("DELETE", `/api/lists/${listId}/members/${userId}`);
+  await refresh();
 }

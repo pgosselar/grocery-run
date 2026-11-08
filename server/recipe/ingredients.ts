@@ -1,6 +1,6 @@
 // Rule-based cleanup: "2 ½ cups all-purpose flour, sifted" → Flour · Qty "2 1/2 cups" · notes "sifted".
 // Works offline and costs nothing; the Claude path (claude.ts) does better on messy lines.
-import type { ParsedIngredient } from "../../shared/types.ts";
+import type { ListSection, ParsedIngredient } from "../../shared/types.ts";
 import { categorize } from "../../shared/sections.ts";
 import { decodeEntities } from "./extract.ts";
 
@@ -64,7 +64,7 @@ function isHeader(line: string) {
   return (/:$/.test(line) && !/\d/.test(line)) || /^for the\b/i.test(line);
 }
 
-export function parseIngredientLine(line: string): ParsedIngredient | null {
+export function parseIngredientLine(line: string, sections: ListSection[]): ParsedIngredient | null {
   const original = line.replace(/\s+/g, " ").trim();
   let s = normalize(original);
   if (!s || isHeader(s)) return null;
@@ -135,13 +135,15 @@ export function parseIngredientLine(line: string): ParsedIngredient | null {
     title = "Salt and pepper";
     lower = "salt and pepper";
   }
-  const section = categorize(title);
+  let section = categorize(title, sections);
+  // "1 can diced tomatoes" matched a produce word, but cans live in the pantry aisle.
+  if (packaged && section === "produce" && sections.some((x) => x.id === "pantry")) section = "pantry";
   return {
     original,
     title,
     quantity,
     notes: notes.filter(Boolean).join("; "),
-    section: packaged && section === "Produce" ? "Pantry" : section,
+    section,
     staple: STAPLES.has(lower) || /^(salt|pepper|water)\b/.test(lower),
   };
 }
@@ -163,6 +165,6 @@ export function mergeDuplicates(items: ParsedIngredient[]): ParsedIngredient[] {
   return [...byTitle.values()];
 }
 
-export function parseIngredientsWithRules(lines: string[]): ParsedIngredient[] {
-  return mergeDuplicates(lines.map(parseIngredientLine).filter((x): x is ParsedIngredient => x !== null));
+export function parseIngredientsWithRules(lines: string[], sections: ListSection[]): ParsedIngredient[] {
+  return mergeDuplicates(lines.map((l) => parseIngredientLine(l, sections)).filter((x): x is ParsedIngredient => x !== null));
 }

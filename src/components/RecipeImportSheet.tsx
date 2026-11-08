@@ -5,7 +5,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input, Textarea } from "@/components/ui/input";
 import { addItem, listItems, requestRecipeImport, useStore } from "@/lib/store";
-import { SECTIONS, sectionRank } from "@/lib/sections";
+import { sectionRank } from "@/lib/sections";
 import { cn } from "@/lib/utils";
 
 type Row = RecipeImport["ingredients"][number] & { key: number; selected: boolean; onList: boolean };
@@ -30,6 +30,7 @@ export function RecipeImportSheet({
   const [recipe, setRecipe] = useState<RecipeImport | null>(null);
   const [rows, setRows] = useState<Row[]>([]);
   const urlRef = useRef<HTMLInputElement>(null);
+  const sections = state.lists[listId]?.sections ?? [];
 
   useEffect(() => {
     if (!open) return;
@@ -49,7 +50,7 @@ export function RecipeImportSheet({
     setLoading(true);
     setError(null);
     try {
-      const r = await requestRecipeImport(mode === "url" ? { url } : { text });
+      const r = await requestRecipeImport(mode === "url" ? { listId, url } : { listId, text });
       setRecipe(r);
       setRows(
         r.ingredients
@@ -57,7 +58,7 @@ export function RecipeImportSheet({
             const onList = openTitles.has(ing.title.toLowerCase());
             return { ...ing, key, onList, selected: !ing.staple && !onList };
           })
-          .sort((a, b) => sectionRank(a.section) - sectionRank(b.section)),
+          .sort((a, b) => sectionRank(sections, a.section) - sectionRank(sections, b.section)),
       );
       if (!r.ingredients.length) setError("Found the recipe, but no ingredients in it.");
     } catch (e) {
@@ -232,7 +233,7 @@ export function RecipeImportSheet({
                       onChange={(e) => update(r.key, { section: e.target.value })}
                       className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground outline-none"
                     >
-                      {SECTIONS.map((s) => <option key={s}>{s}</option>)}
+                      {sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                     </select>
                     {r.onList && <span className="rounded bg-muted px-1.5 py-0.5" style={{ color }}>Already on list</span>}
                     {r.staple && !r.onList && <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">Pantry staple</span>}

@@ -1,10 +1,8 @@
-// Store-section auto-categorization, like the Reminders "Groceries" list type.
-export const SECTIONS = [
-  "Produce", "Bakery", "Meat & Seafood", "Deli", "Dairy & Eggs", "Frozen", "Pantry", "Snacks",
-  "Beverages", "Household", "Personal Care", "Baby", "Pets", "Other",
-] as const;
+// Store sections and auto-sorting. Every list has its own sections (a Costco run walks the store in a
+// different order than Trader Joe's), each with the words that sort a new item into it.
+import type { ListSection } from "./types.ts";
 
-const KEYWORDS: Record<string, string[]> = {
+const DEFAULT_KEYWORDS: Record<string, string[]> = {
   Produce: [
     "tofu", "apple", "banana", "orange", "lemon", "lime", "grape", "berry", "berries", "strawberr", "blueberr", "raspberr",
     "avocado", "tomato", "potato", "onion", "garlic", "ginger", "lettuce", "spinach", "kale", "arugula", "salad",
@@ -42,20 +40,69 @@ const KEYWORDS: Record<string, string[]> = {
   Pets: ["dog food", "cat food", "litter", "treats", "pet"],
 };
 
-// Longest keyword wins so "peanut butter" beats "butter" and "ice cream" beats "cream".
-const ENTRIES = Object.entries(KEYWORDS)
-  .flatMap(([section, words]) => words.map((w) => [w, section] as const))
-  .sort((a, b) => b[0].length - a[0].length);
+/** The catch-all section. Every list has one; it can be renamed and moved but not deleted. */
+export const OTHER = "other";
 
-export function categorize(title: string): string {
-  const t = ` ${title.toLowerCase()} `;
-  for (const [word, section] of ENTRIES) if (t.includes(word)) return section;
-  return "Other";
+const DEFAULT_ORDER: [id: string, name: string][] = [
+  ["produce", "Produce"], ["bakery", "Bakery"], ["meat", "Meat & Seafood"], ["deli", "Deli"], ["dairy", "Dairy & Eggs"],
+  ["frozen", "Frozen"], ["pantry", "Pantry"], ["snacks", "Snacks"], ["beverages", "Beverages"], ["household", "Household"],
+  ["personal", "Personal Care"], ["baby", "Baby"], ["pets", "Pets"], [OTHER, "Other"],
+];
+
+/** A fresh copy of the standard grocery-store sections, keywords included. */
+export function defaultSections(): ListSection[] {
+  return DEFAULT_ORDER.map(([id, name]) => ({ id, name, keywords: [...new Set(DEFAULT_KEYWORDS[name] ?? [])] }));
 }
 
-export function sectionRank(section: string) {
-  const i = (SECTIONS as readonly string[]).indexOf(section);
-  return i === -1 ? SECTIONS.length : i;
+export function normalizeKeyword(word: string) {
+  return word.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Which section a new item goes in. The longest matching word wins, so "peanut butter" beats "butter",
+ * and a word learned from a whole item name ("oat milk") beats the generic one ("milk").
+ */
+export function categorize(title: string, sections: ListSection[]): string {
+  const t = ` ${title.toLowerCase()} `;
+  let best = "";
+  let bestLen = 0;
+  for (const s of sections) {
+    for (const w of s.keywords) {
+      if (w.length > bestLen && t.includes(w)) {
+        best = s.id;
+        bestLen = w.length;
+      }
+    }
+  }
+  return best || fallbackSection(sections);
+}
+
+export function fallbackSection(sections: ListSection[]): string {
+  return sections.find((s) => s.id === OTHER)?.id ?? sections[sections.length - 1]?.id ?? OTHER;
+}
+
+/** An item whose section was deleted (or came from another list) shows under the fallback section. */
+export function resolveSection(sections: ListSection[], id: string): string {
+  return sections.some((s) => s.id === id) ? id : fallbackSection(sections);
+}
+
+export function sectionName(sections: ListSection[], id: string): string {
+  return sections.find((s) => s.id === id)?.name ?? sections.find((s) => s.id === fallbackSection(sections))?.name ?? "Other";
+}
+
+export function sectionRank(sections: ListSection[], id: string) {
+  const i = sections.findIndex((s) => s.id === resolveSection(sections, id));
+  return i === -1 ? sections.length : i;
+}
+
+/** Remember that items called `title` belong in `sectionId` on this list. */
+export function learnSection(sections: ListSection[], title: string, sectionId: string): ListSection[] {
+  const word = normalizeKeyword(title);
+  if (!word || categorize(title, sections) === sectionId) return sections;
+  return sections.map((s) => {
+    const rest = s.keywords.filter((k) => k.trim() !== word);
+    return s.id === sectionId ? { ...s, keywords: [...rest, word] } : rest.length === s.keywords.length ? s : { ...s, keywords: rest };
+  });
 }
 
 /** "2 avocados" → { quantity: "2", title: "avocados" }; leaves "2% milk" alone. */

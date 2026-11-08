@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { Check, Trash2 } from "lucide-react";
+import { Check, LogOut, Trash2 } from "lucide-react";
 import type { GroceryList, ListColor } from "../../shared/types";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { COLOR_NAMES, LIST_COLORS } from "@/lib/colors";
 import { LIST_ICONS, ListIcon } from "@/lib/icons";
-import { createList, deleteList, updateList } from "@/lib/store";
+import { createList, deleteList, removeMember, sortedLists, updateList, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 export function ListEditor({
@@ -26,6 +26,10 @@ export function ListEditor({
   const [icon, setIcon] = useState("cart");
   const [grouped, setGrouped] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [sectionsFrom, setSectionsFrom] = useState("");
+  const state = useStore();
+  const others = sortedLists(state);
+  const isOwner = !list || state.members[list.id]?.find((m) => m.userId === state.user?.id)?.role !== "member";
 
   useEffect(() => {
     if (!open) return;
@@ -34,13 +38,14 @@ export function ListEditor({
     setIcon(list?.icon ?? "cart");
     setGrouped(list?.grouped ?? true);
     setConfirmDelete(false);
+    setSectionsFrom("");
   }, [open, list]);
 
   const save = () => {
     const n = name.trim();
     if (!n) return;
     if (list) updateList(list.id, { name: n, color, icon, grouped });
-    else onCreated?.(createList({ name: n, color, icon, grouped }));
+    else onCreated?.(createList({ name: n, color, icon, grouped, sectionsFrom: sectionsFrom || undefined }));
     onOpenChange(false);
   };
 
@@ -113,7 +118,50 @@ export function ListEditor({
           <Toggle checked={grouped} onChange={setGrouped} color={LIST_COLORS[color]} />
         </label>
 
-        {list &&
+        {!list && others.length > 0 && (
+          <label className="flex items-center justify-between gap-3 rounded-xl bg-card p-4">
+            <div>
+              <div className="font-medium">Start sections from</div>
+              <div className="text-sm text-muted-foreground">You can change them any time from •••</div>
+            </div>
+            <select
+              value={sectionsFrom}
+              onChange={(e) => setSectionsFrom(e.target.value)}
+              className="max-w-40 bg-transparent text-right text-muted-foreground outline-none"
+            >
+              <option value="">Standard store</option>
+              {others.map((l) => <option key={l.id} value={l.id}>Same as {l.name}</option>)}
+            </select>
+          </label>
+        )}
+
+        {list && !isOwner && (
+          confirmDelete ? (
+            <div className="space-y-2 rounded-xl bg-card p-4">
+              <p className="text-sm text-muted-foreground">Leave “{list.name}”? It stays for everyone else.</p>
+              <div className="flex gap-2">
+                <Button variant="secondary" className="flex-1" onClick={() => setConfirmDelete(false)}>Stay</Button>
+                <Button
+                  variant="destructive"
+                  className="flex-1"
+                  onClick={() => {
+                    onOpenChange(false);
+                    onDeleted?.();
+                    void removeMember(list.id, state.user!.id);
+                  }}
+                >
+                  Leave List
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button variant="ghost" className="w-full text-destructive" onClick={() => setConfirmDelete(true)}>
+              <LogOut /> Leave List
+            </Button>
+          )
+        )}
+
+        {list && isOwner &&
           (confirmDelete ? (
             <div className="space-y-2 rounded-xl bg-card p-4">
               <p className="text-sm text-muted-foreground">Delete “{list.name}” and all its items for everyone?</p>

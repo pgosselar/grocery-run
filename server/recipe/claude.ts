@@ -4,8 +4,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
-import type { ParsedIngredient } from "../../shared/types.ts";
-import { SECTIONS } from "../../shared/sections.ts";
+import type { ListSection, ParsedIngredient } from "../../shared/types.ts";
+import { categorize } from "../../shared/sections.ts";
 
 export const claudeEnabled = Boolean(process.env.ANTHROPIC_API_KEY);
 
@@ -13,18 +13,21 @@ const MODEL = process.env.RECIPE_MODEL || "claude-opus-5-5";
 
 const client = claudeEnabled ? new Anthropic({ timeout: 60_000, maxRetries: 1 }) : null;
 
-const Cleaned = z.object({
-  items: z.array(
-    z.object({
-      sources: z.array(z.number().int()).describe("1-based numbers of the recipe lines this item comes from"),
-      title: z.string().describe("What to look for at the store, e.g. 'Diced tomatoes', 'Chicken thighs'"),
-      quantity: z.string().describe("Amount as written in the recipe, e.g. '2 1/2 cups', '1 can (14 oz)'; '' if none"),
-      notes: z.string().describe("Useful shopping detail (size, variety, 'boneless skinless'); '' if none"),
-      section: z.enum(SECTIONS),
-      staple: z.boolean().describe("True for things nearly every kitchen already has"),
-    }),
-  ),
-});
+/** The answer's shape; `section` must be one of this list's own section names. */
+function cleanedSchema(sectionNames: [string, ...string[]]) {
+  return z.object({
+    items: z.array(
+      z.object({
+        sources: z.array(z.number().int()).describe("1-based numbers of the recipe lines this item comes from"),
+        title: z.string().describe("What to look for at the store, e.g. 'Diced tomatoes', 'Chicken thighs'"),
+        quantity: z.string().describe("Amount as written in the recipe, e.g. '2 1/2 cups', '1 can (14 oz)'; '' if none"),
+        notes: z.string().describe("Useful shopping detail (size, variety, 'boneless skinless'); '' if none"),
+        section: z.enum(sectionNames),
+        staple: z.boolean().describe("True for things nearly every kitchen already has"),
+      }),
+    ),
+  });
+}
 
 const SYSTEM = `You turn recipe ingredient lines into a family grocery list.
 
@@ -32,26 +35,42 @@ For each real ingredient, produce one shopping item:
 - title: the product a shopper looks for, in plain words with a capital first letter. Drop prep steps (chopped, minced, softened, room temperature) — those don't affect what you buy. Keep descriptors that do (diced vs whole tomatoes, unsalted butter, boneless skinless, low-sodium).
 - quantity: the amount from the recipe in compact form ("2 1/2 cups", "3 cloves", "1 can (14 oz)"). Leave empty if the recipe gives none ("salt to taste").
 - notes: only details that help at the store ("or margarine", "about 2 limes"). Leave empty otherwise.
-- section: the store section where it's shelved. Canned and jarred goods, dried spices and baking supplies go in Pantry.
+- section: the section of this store's list where a shopper would find it. Use the family's own section names exactly; the hints show what they usually put in each. Canned and jarred goods, dried spices and baking supplies usually go in a pantry-type section.
 - staple: true only for salt, pepper, water, ice, cooking oils and cooking spray.
 
 If the same product appears more than once (butter for the crust and the filling), output it once, list every source line, and combine the quantities ("4 tbsp + 1/2 cup").
 Skip lines that aren't ingredients, such as section headings ("For the sauce:") or equipment.`;
 
-export async function cleanWithClaude(recipeName: string, lines: string[]): Promise<ParsedIngredient[]> {
+export async function cleanWithClaude(
+  recipeName: string,
+  lines: string[],
+  listName: string,
+  sections: ListSection[],
+): Promise<ParsedIngredient[]> {
   if (!client) throw new Error("Claude is not configured");
   const numbered = lines.map((l, i) => `${i + 1}. ${l}`).join("\n");
+  // Section names can repeat after renames; the schema needs them unique.
+  const names = [...new Set(sections.map((s) => s.name))] as [string, ...string[]];
+  const idByName = new Map(sections.map((s) => [s.name, s.id]));
+  const sectionGuide = sections
+    .map((s) => `- ${s.name}${s.keywords.length ? `: e.g. ${s.keywords.slice(0, 12).map((k) => k.trim()).join(", ")}` : ""}`)
+    .join("\n");
 
   const response = await client.beta.messages.parse({
     model: MODEL,
     max_tokens: 16000,
     // Simple extraction: low effort keeps it quick for someone standing in the kitchen.
-    output_config: { effort: "low", format: betaZodOutputFormat(Cleaned) },
+    output_config: { effort: "low", format: betaZodOutputFormat(cleanedSchema(names)) },
     // If a safety classifier declines, retry server-side on Anthropic's recommended model.
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
     system: SYSTEM,
-    messages: [{ role: "user", content: `Recipe: ${recipeName}\n\nIngredient lines:\n${numbered}` }],
+    messages: [
+      {
+        role: "user",
+        content: `Store list: ${listName}\nSections, in store order:\n${sectionGuide}\n\nRecipe: ${recipeName}\n\nIngredient lines:\n${numbered}`,
+      },
+    ],
   });
 
   if (response.stop_reason === "refusal") throw new Error("Claude declined to process this recipe");
@@ -69,7 +88,14 @@ export async function cleanWithClaude(recipeName: string, lines: string[]): Prom
       title: it.title.trim(),
       quantity: it.quantity.trim(),
       notes: it.notes.trim(),
-      section: it.section,
+      // A word this family taught the list beats Claude's guess: they know their store.
+      section: learnedSection(it.title, sections) ?? idByName.get(it.section) ?? categorize(it.title, sections),
       staple: it.staple,
     }));
+}
+
+/** Section from a keyword someone added by hand or by moving an item, if one matches exactly. */
+function learnedSection(title: string, sections: ListSection[]): string | null {
+  const t = title.toLowerCase().trim();
+  return sections.find((s) => s.keywords.some((k) => k.trim() === t))?.id ?? null;
 }

@@ -3,7 +3,7 @@ import { CloudOff, History, Plus, Check } from "lucide-react";
 import type { HistoryEntry } from "../../shared/types";
 import { Sheet } from "@/components/ui/sheet";
 import { addItem, fetchHistory, listItems, localHistory, useStore } from "@/lib/store";
-import { sectionRank } from "@/lib/sections";
+import { sectionName, sectionRank } from "@/lib/sections";
 import { cn } from "@/lib/utils";
 import { Provenance } from "./Provenance";
 
@@ -24,6 +24,8 @@ export function HistorySheet({
 }) {
   const open = section !== undefined;
   const state = useStore();
+  const sectionList = state.lists[listId]?.sections ?? [];
+  const nameOf = (id: string) => sectionName(sectionList, id);
   const [filter, setFilter] = useState<string | null>(null);
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   const [sections, setSections] = useState<string[]>([]);
@@ -49,7 +51,10 @@ export function HistorySheet({
       .then((r) => {
         if (cancelled) return;
         setEntries(r.entries);
-        setSections(r.sections.sort((a, b) => sectionRank(a) - sectionRank(b)));
+        const secs = state.lists[listId]?.sections ?? [];
+        // Ids of deleted sections show as the catch-all; don't list it twice.
+        const ids = [...new Set(r.sections.filter((s) => secs.some((x) => x.id === s)))];
+        setSections(ids.sort((a, b) => sectionRank(secs, a) - sectionRank(secs, b)));
         setOffline(false);
       })
       .catch(() => {
@@ -71,7 +76,7 @@ export function HistorySheet({
     <Sheet
       open={open}
       onOpenChange={(o) => !o && onClose()}
-      title={filter ? `${filter} History` : "Recently Completed"}
+      title={filter ? `${nameOf(filter)} History` : "Recently Completed"}
       hideCancel
     >
       <div className="space-y-3 pb-4">
@@ -87,7 +92,7 @@ export function HistorySheet({
                 )}
                 style={filter === s ? { backgroundColor: color } : undefined}
               >
-                {s ?? "All"}
+                {s === null ? "All" : nameOf(s)}
               </button>
             ))}
           </div>
@@ -108,7 +113,7 @@ export function HistorySheet({
         ) : entries.length === 0 ? (
           <div className="flex flex-col items-center py-12 text-center text-muted-foreground">
             <History className="mb-3 size-10 opacity-40" />
-            <p>Nothing checked off{filter ? ` in ${filter}` : ""} yet.</p>
+            <p>Nothing checked off{filter ? ` in ${nameOf(filter)}` : ""} yet.</p>
           </div>
         ) : (
           <ul className="divide-y overflow-hidden rounded-xl bg-card shadow-sm">
@@ -121,7 +126,7 @@ export function HistorySheet({
                     <div className="flex items-baseline gap-2">
                       <span className="truncate text-[17px] font-medium">{e.title}</span>
                       {e.quantity && <span className="text-sm text-muted-foreground">Qty {e.quantity}</span>}
-                      {!filter && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{e.section}</span>}
+                      {!filter && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{nameOf(e.section)}</span>}
                     </div>
                     <Provenance
                       addedBy={e.addedBy}

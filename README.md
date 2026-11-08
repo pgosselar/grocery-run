@@ -1,10 +1,12 @@
 # Grocery Run
 
-A shared family grocery list that works like iOS Reminders. It's an installable PWA backed by a small self-hosted Node server.
+Shared family grocery lists that work like iOS Reminders. It's an installable PWA backed by a small self-hosted Node server.
 
-- **Lists** with a color and icon, drag to reorder (tap **Edit**)
+- **Accounts:** email and password, plus **Continue with Google** once it's configured. The first account is free to create; after that, people join through a list's invite link.
+- **A list per store** (the regular grocery store, Costco, Trader Joe's…) with a color and icon. Each person orders their own lists screen (tap **Edit**).
+- **Sharing:** tap the person icon on a list to see who's on it and send an invite link. Owners can remove people and reset the link; anyone else can leave. Only the owner can delete a list.
+- **Sections per list:** `•••` → **Edit Sections** to drag sections into the order you walk that store, rename them, add or delete them, and edit the words that sort new items into each. Move an item to another section and that list remembers it: "Oat milk" can live in Frozen at Costco and in Dairy everywhere else. Changes only affect new items.
 - **Items:** tap **New Item**, type, press return, and keep typing. "2 avocados" sets the quantity.
-- **Store sections:** items sort into Produce, Dairy, Bakery and so on automatically. You can turn this off per list or move items by hand.
 - **Check off** an item and it lingers for a moment, then hides. Show or clear completed items from the `•••` menu.
 - **Swipe left** to flag or delete. A long swipe deletes.
 - **ⓘ on every item** shows who added it and when, plus who checked it off. **Edit Details** covers notes, quantity, section, flag, and moving to another list.
@@ -34,7 +36,7 @@ npm run dev:client   # Vite on :5173, proxies /api and /ws (also exposed on your
 
 ```sh
 npm run build
-FAMILY_PASSCODE=something npm start   # serves app + API on :3001
+npm start   # serves app + API on :3001
 ```
 
 Or with Docker Compose (this is how it runs on the home server):
@@ -44,7 +46,33 @@ docker compose up -d --build     # first run and after every code change
 docker compose logs -f           # logs
 ```
 
-The passcode and session secret live in `.env`, which is gitignored. The database is in `./data/grocery.db`, so back up that folder.
+Settings and secrets live in `.env`, which is gitignored. The database is in `./data/grocery.db`, so back up that folder.
+
+**First run:** the first person to open the app creates the first account, so do that yourself right after deploying. Then share a list with each family member.
+
+### Accounts admin
+
+There's no email verification. Without Resend configured, reset a forgotten password from the server:
+
+```sh
+docker compose exec grocery-run node server/cli.ts users
+docker compose exec grocery-run node server/cli.ts reset-password someone@example.com   # prints a temporary password
+```
+
+### Password reset emails (optional)
+
+1. In [Resend](https://resend.com), verify a domain you own and create an API key.
+2. In `.env`, set `RESEND_API_KEY`, `EMAIL_FROM` (an address on that domain), and `PUBLIC_URL`. Then run `docker compose up -d`.
+
+The sign-in screen then shows **Forgot password?**, which emails a one-hour, single-use link.
+
+### Google sign-in (optional)
+
+1. In [Google Cloud Console](https://console.cloud.google.com/apis/credentials), create an **OAuth client ID** of type **Web application**. Set up the consent screen first if asked: External, with just your app name and email.
+2. Under **Authorized redirect URIs**, add `https://<your domain>/api/auth/google/callback`.
+3. In `.env`, set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `PUBLIC_URL`. Then run `docker compose up -d`.
+
+A Google account with the same email as an existing account gets connected to it. Because emails on password accounts aren't verified, connecting Google removes that account's password and signs out its other sessions; the person can add a new password under **Account**. New Google users still need an invite link.
 
 ### Nginx Proxy Manager
 
@@ -58,8 +86,11 @@ Add a Proxy Host with these settings:
 |---|---|---|
 | `PORT` | `3001` | |
 | `DB_PATH` | `data/grocery.db` | SQLite file. Back this up. |
-| `FAMILY_PASSCODE` | *(empty)* | Shared passcode. Empty means no login, so only leave it empty on a trusted network. |
-| `SESSION_SECRET` | derived | Set this to keep sessions valid if you change the passcode. |
+| `PUBLIC_URL` | from request | Public address, used in invite, reset, and Google links |
+| `SESSION_SECRET` | stored in DB | Signs the Google sign-in handshake |
+| `SIGNUPS` | `invite` | `open` lets anyone create an account without an invite |
+| `RESEND_API_KEY`, `EMAIL_FROM` | *(unset)* | Password reset emails |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | *(unset)* | Continue with Google |
 | `ANTHROPIC_API_KEY` | *(unset)* | Optional. Recipe import uses Claude to clean up ingredients, and falls back to the built-in rules if the call fails. |
 | `RECIPE_MODEL` | `claude-opus-5-5` | Claude model for recipe cleanup |
 
@@ -79,4 +110,4 @@ Then in Safari, tap **Share**, then **Add to Home Screen**.
 2. **Extract** (`server/recipe/extract.ts`): reads the schema.org `Recipe` JSON-LD that recipe sites publish for search engines, and falls back to microdata. No HTML scraping.
 3. **Clean** each line into title, quantity, notes, section, and whether it's a staple:
    - **Rules** (`server/recipe/ingredients.ts`): unicode fractions, units, parentheticals, prep words ("finely chopped"), costs like "($0.32)", "X or Y" alternatives, and canned goods. Duplicates are merged ("butter" in the crust and the filling).
-   - **Claude** (`server/recipe/claude.ts`), when `ANTHROPIC_API_KEY` is set: one structured-output call that returns validated JSON, at low effort for speed. Better on messy lines; usually costs a fraction of a cent per recipe.
+   - **Claude** (`server/recipe/claude.ts`), when `ANTHROPIC_API_KEY` is set: one structured-output call that returns validated JSON, at low effort for speed. It's given the list's own section names (and sample words), so it sorts into *that store's* sections. Words the list has learned win over Claude's guess. Better on messy lines; usually costs a fraction of a cent per recipe.

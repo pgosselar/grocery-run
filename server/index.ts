@@ -3,8 +3,11 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
-import { applyOps, history, snapshot, version } from "./db.ts";
-import { login, me, requireAuth, sessionFrom } from "./auth.ts";
+import { applyOps, history, memberIds, removeMember, roleOf, snapshot, version } from "./db.ts";
+import {
+  currentUser, forgotPassword, resetPassword, googleCallback, googleStart, login, logout, me, requireAuth, signup, updateAccount, userFrom,
+} from "./auth.ts";
+import { acceptInvite, inviteFor, onJoin, previewInvite } from "./users.ts";
 import { importRecipe } from "./recipe/index.ts";
 import type { Op, ServerMessage } from "../shared/types.ts";
 
@@ -13,33 +16,103 @@ const app = express();
 app.set("trust proxy", true);
 app.use(express.json({ limit: "1mb" }));
 
+// ---------- accounts ----------
+
 app.get("/api/me", me);
-app.post("/api/login", login);
-app.get("/api/state", requireAuth, (_req, res) => res.json(snapshot()));
+app.post("/api/auth/signup", signup);
+app.post("/api/auth/login", login);
+app.post("/api/auth/logout", logout);
+app.post("/api/auth/forgot", forgotPassword);
+app.post("/api/auth/reset", resetPassword);
+app.get("/api/auth/google", googleStart);
+app.get("/api/auth/google/callback", googleCallback);
+app.patch("/api/account", requireAuth, updateAccount);
+
+// ---------- data ----------
+
+app.get("/api/state", requireAuth, (_req, res) => res.json(snapshot(currentUser(res).id)));
 
 app.get("/api/history", requireAuth, (req, res) => {
   const listId = String(req.query.listId ?? "");
   const section = typeof req.query.section === "string" && req.query.section ? req.query.section : null;
   const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
-  if (!listId) return res.status(400).json({ error: "listId required" });
+  if (!roleOf(listId, currentUser(res).id)) return res.status(404).json({ error: "No such list" });
   res.json(history(listId, section, limit));
 });
 
 app.post("/api/recipe", requireAuth, importRecipe);
 
-const OP_TYPES = new Set(["list.put", "list.delete", "item.put", "item.delete"]);
-
 app.post("/api/ops", requireAuth, (req, res) => {
-  const { ops, clientId } = req.body as { ops: Op[]; clientId: string };
-  if (!Array.isArray(ops) || !ops.every((o) => o && OP_TYPES.has(o.type))) {
+  const { ops, clientId } = (req.body ?? {}) as { ops: Op[]; clientId: string };
+  if (!Array.isArray(ops) || ops.length > 500 || !ops.every((o) => o && typeof o.type === "string")) {
     return res.status(400).json({ error: "bad ops" });
   }
-  const result = applyOps(ops);
-  if (result.applied.length) {
-    broadcast({ type: "ops", ops: result.applied, version: result.version, origin: String(clientId ?? "") });
+  const user = currentUser(res);
+  const result = applyOps(user, ops);
+  const origin = String(clientId ?? "");
+  // Group deliveries per recipient so each person gets one message with only their lists' changes.
+  const perUser = new Map<string, Op[]>();
+  const refresh = new Set<string>();
+  for (const d of result.deliveries) {
+    for (const u of d.userIds) perUser.set(u, [...(perUser.get(u) ?? []), d.op]);
+    d.refresh?.forEach((u) => refresh.add(u));
   }
-  res.json({ version: result.version, applied: result.applied.length });
+  for (const [u, uops] of perUser) sendTo([u], { type: "ops", ops: uops, version: result.version, origin });
+  if (refresh.size) sendTo([...refresh], { type: "refresh" });
+  res.json({ version: result.version, applied: result.deliveries.length, rejected: result.rejected });
 });
+
+// ---------- sharing ----------
+
+const inviteUrl = (req: express.Request, token: string) =>
+  `${(process.env.PUBLIC_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "")}/#/invite/${token}`;
+
+app.get("/api/lists/:id/invite", requireAuth, (req, res) => {
+  const id = String(req.params.id);
+  if (!roleOf(id, currentUser(res).id)) return res.status(404).json({ error: "No such list" });
+  const inv = inviteFor(id, currentUser(res).id);
+  res.json({ url: inviteUrl(req, inv.token), expiresAt: inv.expiresAt });
+});
+
+app.post("/api/lists/:id/invite/reset", requireAuth, (req, res) => {
+  const id = String(req.params.id);
+  if (roleOf(id, currentUser(res).id) !== "owner") return res.status(403).json({ error: "Only the list owner can do that" });
+  const inv = inviteFor(id, currentUser(res).id, true);
+  res.json({ url: inviteUrl(req, inv.token), expiresAt: inv.expiresAt });
+});
+
+/** Remove someone (owner), or leave the list yourself. */
+app.delete("/api/lists/:id/members/:userId", requireAuth, (req, res) => {
+  const id = String(req.params.id);
+  const target = String(req.params.userId);
+  const me = currentUser(res).id;
+  const myRole = roleOf(id, me);
+  const theirRole = roleOf(id, target);
+  if (!myRole || !theirRole) return res.status(404).json({ error: "Not a member" });
+  if (target === me && myRole === "owner") return res.status(400).json({ error: "The owner can't leave. Delete the list instead." });
+  if (target !== me && myRole !== "owner") return res.status(403).json({ error: "Only the list owner can remove people" });
+  const before = memberIds(id);
+  removeMember(id, target);
+  sendTo(before, { type: "refresh" });
+  res.json({ ok: true });
+});
+
+app.get("/api/invites/:token", (req, res) => {
+  const preview = previewInvite(String(req.params.token));
+  if (!preview) return res.status(404).json({ error: "This invite link has expired or been reset. Ask for a new one." });
+  res.json(preview);
+});
+
+app.post("/api/invites/:token/accept", requireAuth, (req, res) => {
+  const user = currentUser(res);
+  const listId = acceptInvite(String(req.params.token), user.id);
+  if (!listId) return res.status(404).json({ error: "This invite link has expired or been reset. Ask for a new one." });
+  res.json({ listId });
+});
+
+app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));
+
+// ---------- app ----------
 
 const dist = join(import.meta.dirname, "..", "dist");
 if (existsSync(dist)) {
@@ -49,14 +122,25 @@ if (existsSync(dist)) {
 
 const server = createServer(app);
 const wss = new WebSocketServer({ noServer: true });
+const sockets = new Map<WebSocket, string>();
 
 server.on("upgrade", (req, socket, head) => {
-  if (!req.url?.startsWith("/ws") || !sessionFrom(req)) {
+  const user = req.url?.startsWith("/ws") ? userFrom(req) : null;
+  // Refuse cross-site pages opening a socket with our cookie.
+  let originHost: string | undefined = req.headers.host;
+  try {
+    if (req.headers.origin) originHost = new URL(req.headers.origin).host;
+  } catch {
+    originHost = undefined;
+  }
+  if (!user || originHost !== req.headers.host) {
     socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
     socket.destroy();
     return;
   }
   wss.handleUpgrade(req, socket, head, (ws) => {
+    sockets.set(ws, user.id);
+    ws.on("close", () => sockets.delete(ws));
     send(ws, { type: "hello", version: version() });
   });
 });
@@ -64,10 +148,14 @@ server.on("upgrade", (req, socket, head) => {
 function send(ws: WebSocket, msg: ServerMessage) {
   if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
 }
-function broadcast(msg: ServerMessage) {
+function sendTo(userIds: string[], msg: ServerMessage) {
+  const ids = new Set(userIds);
   const data = JSON.stringify(msg);
-  for (const ws of wss.clients) if (ws.readyState === WebSocket.OPEN) ws.send(data);
+  for (const [ws, uid] of sockets) if (ids.has(uid) && ws.readyState === WebSocket.OPEN) ws.send(data);
 }
+
+// Someone joined a list (invite link, during sign-up or after): everyone on it refetches to see them.
+onJoin((listId) => sendTo(memberIds(listId), { type: "refresh" }));
 
 // Keep connections alive through proxies / mobile networks
 setInterval(() => {

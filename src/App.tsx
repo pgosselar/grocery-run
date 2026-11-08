@@ -1,44 +1,66 @@
 import { useEffect, useState } from "react";
-import { fetchMe, setUserName, startSync, useStore } from "@/lib/store";
-import { useRoute } from "@/lib/router";
-import { safeStorage, saveStorage } from "@/lib/utils";
+import type { AuthInfo, User } from "../shared/types";
+import { cachedUser, fetchMe, markSignedOut, startSync, useStore } from "@/lib/store";
+import { navigate, useRoute } from "@/lib/router";
 import { ListsScreen } from "@/components/ListsScreen";
 import { ListScreen } from "@/components/ListScreen";
 import { Login } from "@/components/Login";
-
-type Auth = { status: "loading" } | { status: "login"; needsPasscode: boolean } | { status: "ready" };
+import { InviteScreen } from "@/components/InviteScreen";
+import { ResetPassword } from "@/components/ResetPassword";
 
 export default function App() {
-  const [auth, setAuth] = useState<Auth>({ status: "loading" });
-  const { authError } = useStore();
+  const { user } = useStore();
   const route = useRoute();
-
-  const ready = (name: string) => {
-    saveStorage("gr.name", name);
-    setUserName(name);
-    setAuth({ status: "ready" });
-    startSync();
-  };
+  const invite = route.name === "invite" ? route.token : null;
+  // null while we ask the server who we are
+  const [info, setInfo] = useState<AuthInfo | null>(null);
 
   useEffect(() => {
-    fetchMe()
-      .then(({ authEnabled, session }) => {
-        if (session?.name) ready(session.name);
-        else setAuth({ status: "login", needsPasscode: authEnabled && !session });
+    fetchMe(invite)
+      .then((i) => {
+        if (i.user) startSync(i.user);
+        else markSignedOut();
+        setInfo(i);
       })
       .catch(() => {
-        // Offline at launch: run from the local cache if we've signed in before.
-        const name = safeStorage("gr.name", "");
-        if (name) ready(name);
-        else setAuth({ status: "login", needsPasscode: true });
+        // Offline at launch: run from this phone's copy if someone has signed in here before.
+        const u = cachedUser();
+        if (u) startSync(u);
+        setInfo({ user: u, google: false, signupOpen: false, firstRun: false, email: false });
       });
   }, []);
 
+  // After signing out (or a session expiring), refresh what the sign-in screen should offer.
   useEffect(() => {
-    if (authError) setAuth({ status: "login", needsPasscode: true });
-  }, [authError]);
+    if (info && !user) fetchMe(invite).then(setInfo).catch(() => {});
+  }, [user, invite]);
 
-  if (auth.status === "loading") return null;
-  if (auth.status === "login") return <Login needsPasscode={auth.needsPasscode} onDone={ready} />;
+  if (!info) return null;
+
+  if (route.name === "reset") {
+    return (
+      <ResetPassword
+        token={route.token}
+        onDone={(u) => {
+          startSync(u);
+          navigate({ name: "lists" }, true);
+        }}
+      />
+    );
+  }
+
+  if (!user) {
+    return (
+      <Login
+        info={info}
+        invite={invite}
+        onSignedIn={(u: User, listId: string | null) => {
+          startSync(u);
+          if (listId) navigate({ name: "list", id: listId }, true);
+        }}
+      />
+    );
+  }
+  if (route.name === "invite") return <InviteScreen token={route.token} />;
   return route.name === "list" ? <ListScreen key={route.id} id={route.id} /> : <ListsScreen />;
 }

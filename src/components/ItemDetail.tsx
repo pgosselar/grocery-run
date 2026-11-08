@@ -4,7 +4,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { Input, Textarea } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { deleteItem, getState, sortedLists, updateItem, useStore } from "@/lib/store";
-import { SECTIONS } from "@/lib/sections";
+import { categorize, resolveSection } from "@/lib/sections";
 import { Toggle } from "./ListEditor";
 import { Provenance } from "./Provenance";
 
@@ -25,7 +25,7 @@ export function ItemDetail({ itemId, onClose, color }: { itemId: string | null; 
     setTitle(it.title);
     setNotes(it.notes);
     setQuantity(it.quantity);
-    setSection(it.section);
+    setSection(resolveSection(getState().lists[it.listId]?.sections ?? [], it.section));
     setFlagged(it.flagged);
     setListId(it.listId);
   }, [itemId]);
@@ -34,6 +34,11 @@ export function ItemDetail({ itemId, onClose, color }: { itemId: string | null; 
   useEffect(() => {
     if (itemId && !item) onClose();
   }, [itemId, item, onClose]);
+
+  const list = state.lists[listId] ?? (item ? state.lists[item.listId] : undefined);
+  const sections = list?.sections ?? [];
+  const movedList = !!item && listId !== item.listId;
+  const willLearn = !!item && !movedList && section !== resolveSection(sections, item.section) && categorize(title, sections) !== section;
 
   const save = () => {
     if (!item) return onClose();
@@ -62,10 +67,23 @@ export function ItemDetail({ itemId, onClose, color }: { itemId: string | null; 
               />
             </Row>
             <Row label="Section">
-              <select value={section} onChange={(e) => setSection(e.target.value)} className="bg-transparent text-right text-muted-foreground outline-none">
-                {SECTIONS.map((s) => <option key={s}>{s}</option>)}
+              <select
+                value={section}
+                disabled={movedList}
+                onChange={(e) => setSection(e.target.value)}
+                className="max-w-48 bg-transparent text-right text-muted-foreground outline-none disabled:opacity-50"
+              >
+                {sections.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </Row>
+            {willLearn && (
+              <p className="px-4 py-2 text-xs text-muted-foreground">
+                “{title.trim()}” will go to {sections.find((s) => s.id === section)?.name} on {list?.name} from now on.
+              </p>
+            )}
+            {movedList && (
+              <p className="px-4 py-2 text-xs text-muted-foreground">It'll be sorted into {list?.name}'s own sections.</p>
+            )}
             <Row label="List">
               <select value={listId} onChange={(e) => setListId(e.target.value)} className="max-w-48 bg-transparent text-right text-muted-foreground outline-none">
                 {sortedLists(state).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
