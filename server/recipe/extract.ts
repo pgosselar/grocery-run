@@ -2,6 +2,7 @@
 // schema.org Recipe data as JSON-LD for Google, which is far cleaner than scraping text.
 
 import type { RecipeLine } from "../../shared/types.ts";
+import { normalizeTime } from "../../shared/time.ts";
 
 export interface ExtractedRecipe {
   name: string;
@@ -66,17 +67,9 @@ function text(v: Json | undefined): string | null {
   return null;
 }
 
-/** "PT1H15M" → "1 hr 15 min". Anything unparseable is shown as written. */
+/** "PT1H15M" → "1 hr 15 min"; sites that put plain text there ("15 minutes") get tidied too. */
 export function formatDuration(v: Json | undefined): string | undefined {
-  const raw = text(v);
-  if (!raw) return undefined;
-  const m = raw.match(/^P(?:(\d+)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:\d+(?:\.\d+)?S)?)?$/i);
-  if (!m) return raw.length <= 40 ? raw : undefined;
-  let mins = Math.round(Number(m[1] ?? 0) * 1440 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0));
-  if (!mins) return undefined;
-  const h = Math.floor(mins / 60);
-  mins %= 60;
-  return [h && `${h} hr`, mins && `${mins} min`].filter(Boolean).join(" ");
+  return normalizeTime(text(v));
 }
 
 /** schema.org recipeInstructions: a string, a list of strings, HowToSteps, or HowToSections of HowToSteps. */

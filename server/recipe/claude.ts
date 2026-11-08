@@ -24,6 +24,9 @@ function pastedSchema(sectionNames: [string, ...string[]]) {
   return z.object({
     title: z.string().describe("The recipe's name if the text includes one, else ''"),
     servings: z.string().describe("How many it serves or makes, if stated (e.g. '4', '24 cookies'), else ''"),
+    prepTime: z.string().describe("Prep time if stated, e.g. '15 min', '1 hr 10 min', '20-25 min'; else ''"),
+    cookTime: z.string().describe("Cook or bake time if stated; else ''"),
+    totalTime: z.string().describe("Total or 'ready in' time if stated; else ''"),
     ingredientLines: lineNumbers("ingredients, or headings that group ingredients"),
     stepLines: lineNumbers("instructions, or headings that group instructions"),
     noteLines: lineNumbers("notes or tips that are neither ingredients nor steps"),
@@ -124,11 +127,14 @@ export async function cleanWithClaude(
 
 const PASTED_SYSTEM = `${SYSTEM}
 
-This time the text was pasted by hand and may be a whole recipe: a title, a blurb, ingredients, steps and notes, in any order and with or without headings. First say which numbered lines are which (leave out lines that are none of these, like ads, ratings or "Print recipe", and leave out the words "Ingredients" or "Directions" when they're just labels). Then produce shopping items from the ingredient lines only.`;
+This time the text was pasted by hand and may be a whole recipe: a title, a blurb, ingredients, steps and notes, in any order and with or without headings. First say which numbered lines are which (leave out lines that are none of these, like ads, ratings or "Print recipe", and leave out the words "Ingredients" or "Directions" when they're just labels). Report stated prep, cook and total times and servings in their own fields, and don't list the lines that only state them. Don't work out times that aren't stated. Then produce shopping items from the ingredient lines only.`;
 
 export interface PastedLayout {
   title: string;
   servings: string;
+  prepTime: string;
+  cookTime: string;
+  totalTime: string;
   ingredientLines: number[];
   stepLines: number[];
   noteLines: number[];

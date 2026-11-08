@@ -26,6 +26,7 @@ export function RecipeEditSheet({
 }) {
   const [title, setTitle] = useState("");
   const [servings, setServings] = useState("");
+  const [times, setTimes] = useState<Recipe["times"]>({});
   const [ingredients, setIngredients] = useState("");
   const [steps, setSteps] = useState("");
   const [notes, setNotes] = useState("");
@@ -36,6 +37,7 @@ export function RecipeEditSheet({
     if (!open) return;
     setTitle(recipe.title);
     setServings(recipe.servings ?? "");
+    setTimes(recipe.times);
     setIngredients(toText(recipe.ingredients));
     setSteps(toText(recipe.steps));
     setNotes(recipe.notes);
@@ -50,6 +52,7 @@ export function RecipeEditSheet({
         await editRecipe(recipe.id, {
           title: title.trim(),
           servings: servings.trim() || null,
+          times,
           ingredients: fromText(ingredients),
           steps: fromText(steps),
           notes: notes.trim(),
@@ -71,9 +74,21 @@ export function RecipeEditSheet({
           <label className={label}>Title</label>
           <Input value={title} onChange={(e) => setTitle(e.target.value)} />
         </div>
-        <div className="space-y-1.5">
-          <label className={label}>Serves</label>
-          <Input value={servings} onChange={(e) => setServings(e.target.value)} placeholder="4" />
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div className="space-y-1.5">
+            <label className={label}>Serves</label>
+            <Input value={servings} onChange={(e) => setServings(e.target.value)} placeholder="4" />
+          </div>
+          {(["prep", "cook", "total"] as const).map((k) => (
+            <div key={k} className="space-y-1.5">
+              <label className={label}>{k === "prep" ? "Prep" : k === "cook" ? "Cook" : "Total"} time</label>
+              <Input
+                value={times[k] ?? ""}
+                onChange={(e) => setTimes((t) => ({ ...t, [k]: e.target.value }))}
+                placeholder={k === "prep" ? "15 min" : k === "cook" ? "30 min" : "45 min"}
+              />
+            </div>
+          ))}
         </div>
         <div className="space-y-1.5">
           <label className={label}>Ingredients</label>

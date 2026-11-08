@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import type { ParsedIngredient, RecipeDraft, RecipeImport, RecipeLine } from "../../shared/types.ts";
 import { defaultSections } from "../../shared/sections.ts";
+import { normalizeTime } from "../../shared/time.ts";
 import { listById, roleOf } from "../db.ts";
 import { currentUser } from "../auth.ts";
 import { existingRecipeFor, toShopping } from "../recipes.ts";
@@ -112,6 +113,12 @@ async function readPasted(base: RecipeDraft, lines: string[], listName: string, 
         ...base,
         title: layout.title.trim() || base.title,
         servings: layout.servings.trim() || null,
+        times: Object.fromEntries(
+          ([["prep", layout.prepTime], ["cook", layout.cookTime], ["total", layout.totalTime]] as const).flatMap(([k, v]) => {
+            const t = normalizeTime(v);
+            return t ? [[k, t]] : [];
+          }),
+        ),
         ingredients: pick(layout.ingredientLines),
         steps: pick(layout.stepLines),
         notes: layout.noteLines.map((n) => lines[n - 1]).filter(Boolean).join("\n"),
@@ -126,6 +133,7 @@ async function readPasted(base: RecipeDraft, lines: string[], listName: string, 
     ...base,
     title: split.title ?? base.title,
     servings: split.servings,
+    times: split.times,
     ingredients: split.ingredients,
     steps: split.steps,
     notes: split.notes,

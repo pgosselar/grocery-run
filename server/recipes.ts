@@ -6,6 +6,7 @@ import type {
   ListSection, ParsedIngredient, Recipe, RecipeDraft, RecipeImport, RecipeLine, RecipeSummary, ShoppingItem,
 } from "../shared/types.ts";
 import { categorize, defaultSections } from "../shared/sections.ts";
+import { normalizeTime } from "../shared/time.ts";
 import { db, listById, roleOf, tx } from "./db.ts";
 import { currentUser } from "./auth.ts";
 import { claudeEnabled, cleanWithClaude } from "./recipe/claude.ts";
@@ -70,7 +71,10 @@ export function cleanDraft(raw: unknown): RecipeDraft | null {
     description: str(d.description, 2000),
     servings: strOrNull(d.servings, 60),
     times: Object.fromEntries(
-      (["prep", "cook", "total"] as const).flatMap((k) => (str(times[k], 40) ? [[k, str(times[k], 40)]] : [])),
+      (["prep", "cook", "total"] as const).flatMap((k) => {
+        const t = normalizeTime(str(times[k], 60));
+        return t ? [[k, t]] : [];
+      }),
     ),
     ingredients: lines(d.ingredients),
     steps: lines(d.steps),
