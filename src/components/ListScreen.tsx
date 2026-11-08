@@ -21,6 +21,7 @@ import { RecipeImportSheet } from "./RecipeImportSheet";
 import { SyncBadge } from "./SyncBadge";
 import { ShareSheet } from "./ShareSheet";
 import { SectionsSheet } from "./SectionsSheet";
+import { MoveSheet } from "./MoveSheet";
 
 const LINGER_MS = 1600;
 
@@ -46,6 +47,7 @@ export function ListScreen({ id }: { id: string }) {
 
   const [adding, setAdding] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [moveId, setMoveId] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   // undefined = closed, null = whole list, string = a section
   const [historyFor, setHistoryFor] = useState<string | null | undefined>(undefined);
@@ -203,6 +205,7 @@ export function ListScreen({ id }: { id: string }) {
                         sortable={!list.grouped}
                         onCompleted={onCompleted}
                         onInfo={() => setDetailId(item.id)}
+                        onMove={() => setMoveId(item.id)}
                         onEnter={() => setAdding(true)}
                       />
                     ))}
@@ -227,6 +230,7 @@ export function ListScreen({ id }: { id: string }) {
       </main>
 
       <ItemDetail itemId={detailId} onClose={() => setDetailId(null)} color={color} />
+      <MoveSheet itemId={moveId} onClose={() => setMoveId(null)} color={color} />
       <ListEditor open={infoOpen} onOpenChange={setInfoOpen} list={list} />
       <ShareSheet list={list} open={shareOpen} onClose={() => setShareOpen(false)} color={color} />
       <SectionsSheet list={list} open={sectionsOpen} onClose={() => setSectionsOpen(false)} color={color} />

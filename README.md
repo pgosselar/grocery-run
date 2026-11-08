@@ -5,7 +5,9 @@ Shared family grocery lists that work like iOS Reminders. It's an installable PW
 - **Accounts:** email and password, plus **Continue with Google** once it's configured. The first account is free to create; after that, people join through a list's invite link.
 - **A list per store** (the regular grocery store, Costco, Trader Joe's…) with a color and icon. Each person orders their own lists screen (tap **Edit**).
 - **Sharing:** tap the person icon on a list to see who's on it and send an invite link. Owners can remove people and reset the link; anyone else can leave. Only the owner can delete a list.
-- **Sections per list:** `•••` → **Edit Sections** to drag sections into the order you walk that store, rename them, add or delete them, and edit the words that sort new items into each. Move an item to another section and that list remembers it: "Oat milk" can live in Frozen at Costco and in Dairy everywhere else. Changes only affect new items.
+- **Sections per list:** `•••` → **Edit Sections** to drag sections into the order you walk that store, rename them, add or delete them, and edit the words that sort new items into each. Changes only affect new items.
+- **Auto-sorting** matches words in the item's name. When several match, the one nearest the end wins ("chocolate milk" is milk, "orange juice" is juice), and "frozen" or "canned" anywhere wins over everything but a learned name.
+- **Always put X in Y:** hold a finger on an item (or swipe it, or tap ⓘ) → **Move**, and pick a section. That list remembers the item for next time and says so, with an **Undo**: "Oat milk" can live in Frozen at Costco and in Dairy everywhere else.
 - **Items:** tap **New Item**, type, press return, and keep typing. "2 avocados" sets the quantity.
 - **Check off** an item and it lingers for a moment, then hides. Show or clear completed items from the `•••` menu.
 - **Swipe left** to flag or delete. A long swipe deletes.

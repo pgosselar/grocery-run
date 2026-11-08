@@ -3,7 +3,10 @@ import type {
   AuthInfo, GroceryList, HistoryEntry, InvitePreview, Item, ListColor, ListSection, Member, Op, RecipeImport,
   ServerMessage, Snapshot, User,
 } from "../../shared/types";
-import { OTHER, categorize, defaultSections, learnSection, parseQuantity, resolveSection } from "./sections";
+import {
+  OTHER, categorize, defaultSections, learnSection, parseQuantity, resolveSection, sectionName, sectionWithWord, unlearnSection,
+} from "./sections";
+import { showToast } from "./toast";
 import { safeStorage, saveStorage, uid } from "./utils";
 
 /*
@@ -441,19 +444,43 @@ export function updateItem(id: string, patch: Partial<Omit<Item, "id">>) {
   const next = { ...cur, ...patch, updatedAt: now() };
   const ops: Op[] = [];
   const sections = sectionsOf(next.listId);
+  const list = state.lists[next.listId];
+  let moved: { learned: boolean; previousOwner: string | null } | null = null;
   if (next.listId !== cur.listId) {
     // Moved to another store's list: sort it the way that list sorts things.
     next.section = categorize(next.title, sections);
-  } else if (patch.section !== undefined && patch.section !== cur.section) {
+  } else if (patch.section !== undefined && resolveSection(sections, patch.section) !== resolveSection(sections, cur.section)) {
     // Moved by hand: this list remembers, so next time it goes straight there.
+    const previousOwner = sectionWithWord(sections, next.title);
     const learned = learnSection(sections, next.title, patch.section);
-    const list = state.lists[next.listId];
     if (learned !== sections && list) ops.push({ type: "list.put", list: { ...list, sections: learned, updatedAt: now() } });
+    moved = { learned: learned !== sections, previousOwner };
   } else if (patch.title !== undefined && cur.section === categorize(cur.title, sections)) {
     // Renamed and its section was the automatic one: re-sort.
     next.section = categorize(next.title, sections);
   }
   ops.push({ type: "item.put", item: next });
+  commit(ops);
+
+  if (moved && list) {
+    const to = sectionName(sections, next.section);
+    showToast(
+      moved.learned ? `“${next.title}” will always go to ${to} on ${list.name}.` : `Moved “${next.title}” to ${to}.`,
+      () => undoMove(id, cur.section, next.section, moved.learned ? moved.previousOwner : undefined),
+    );
+  }
+}
+
+/** Put an item back where it was and, if the move taught the list a word, forget it again. */
+function undoMove(id: string, from: string, to: string, previousOwner: string | null | undefined) {
+  const item = state.items[id];
+  if (!item || item.section !== to) return; // someone has moved it since
+  const ops: Op[] = [];
+  const list = state.lists[item.listId];
+  if (list && previousOwner !== undefined) {
+    ops.push({ type: "list.put", list: { ...list, sections: unlearnSection(list.sections, item.title, to, previousOwner), updatedAt: now() } });
+  }
+  ops.push({ type: "item.put", item: { ...item, section: from, updatedAt: now() } });
   commit(ops);
 }
 

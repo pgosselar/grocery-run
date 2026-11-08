@@ -78,7 +78,7 @@ export function ItemDetail({ itemId, onClose, color }: { itemId: string | null; 
             </Row>
             {willLearn && (
               <p className="px-4 py-2 text-xs text-muted-foreground">
-                “{title.trim()}” will go to {sections.find((s) => s.id === section)?.name} on {list?.name} from now on.
+                “{title.trim()}” will always go to {sections.find((s) => s.id === section)?.name} on {list?.name}.
               </p>
             )}
             {movedList && (

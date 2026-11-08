@@ -7,6 +7,7 @@ import { ListScreen } from "@/components/ListScreen";
 import { Login } from "@/components/Login";
 import { InviteScreen } from "@/components/InviteScreen";
 import { ResetPassword } from "@/components/ResetPassword";
+import { Toaster } from "@/components/Toaster";
 
 export default function App() {
   const { user } = useStore();
@@ -62,5 +63,10 @@ export default function App() {
     );
   }
   if (route.name === "invite") return <InviteScreen token={route.token} />;
-  return route.name === "list" ? <ListScreen key={route.id} id={route.id} /> : <ListsScreen />;
+  return (
+    <>
+      {route.name === "list" ? <ListScreen key={route.id} id={route.id} /> : <ListsScreen />}
+      <Toaster />
+    </>
+  );
 }

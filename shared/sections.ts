@@ -59,22 +59,42 @@ export function normalizeKeyword(word: string) {
 }
 
 /**
- * Which section a new item goes in. The longest matching word wins, so "peanut butter" beats "butter",
- * and a word learned from a whole item name ("oat milk") beats the generic one ("milk").
+ * Words that say how something is stored, not what it is. They win wherever they appear in a name:
+ * "frozen broccoli" goes to Frozen and "canned corn" to the pantry, even though broccoli and corn are produce.
+ */
+const FORM_WORDS = new Set(["frozen", "canned"]);
+
+/**
+ * Which section a new item goes in.
+ * 1. A word learned from this exact item name always wins.
+ * 2. A form word like "frozen" beats an ordinary word.
+ * 3. Otherwise the match nearest the end of the name wins, because the last word usually says what the
+ *    thing is: "chocolate milk" is milk, "milk chocolate" is chocolate, "orange juice" is juice.
+ * 4. If two matches end at the same place, the longer one wins, so "peanut butter" beats "butter".
  */
 export function categorize(title: string, sections: ListSection[]): string {
-  const t = ` ${title.toLowerCase()} `;
-  let best = "";
-  let bestLen = 0;
+  const whole = normalizeKeyword(title);
+  const t = ` ${whole} `;
+  let best: { id: string; form: boolean; end: number; len: number } | null = null;
   for (const s of sections) {
     for (const w of s.keywords) {
-      if (w.length > bestLen && t.includes(w)) {
-        best = s.id;
-        bestLen = w.length;
-      }
+      // Keywords may carry a meaningful trailing space ("can "), so match them as stored.
+      const word = w.trim();
+      if (!word) continue;
+      if (word === whole) return s.id;
+      const at = t.lastIndexOf(w);
+      if (at === -1) continue;
+      const c = { id: s.id, form: word.split(" ").some((x) => FORM_WORDS.has(x)), end: at + w.trimEnd().length, len: word.length };
+      if (!best || beats(c, best)) best = c;
     }
   }
-  return best || fallbackSection(sections);
+  return best?.id ?? fallbackSection(sections);
+}
+
+function beats(a: { form: boolean; end: number; len: number }, b: { form: boolean; end: number; len: number }) {
+  if (a.form !== b.form) return a.form;
+  if (a.end !== b.end) return a.end > b.end;
+  return a.len > b.len;
 }
 
 export function fallbackSection(sections: ListSection[]): string {
@@ -103,6 +123,25 @@ export function learnSection(sections: ListSection[], title: string, sectionId: 
     const rest = s.keywords.filter((k) => k.trim() !== word);
     return s.id === sectionId ? { ...s, keywords: [...rest, word] } : rest.length === s.keywords.length ? s : { ...s, keywords: rest };
   });
+}
+
+/**
+ * Undo `learnSection`: forget `title` as a word for `sectionId`, and give it back to the section that had
+ * it before (if any).
+ */
+export function unlearnSection(sections: ListSection[], title: string, sectionId: string, previousOwner: string | null): ListSection[] {
+  const word = normalizeKeyword(title);
+  return sections.map((s) => {
+    if (s.id === sectionId) return { ...s, keywords: s.keywords.filter((k) => k.trim() !== word) };
+    if (s.id === previousOwner && !s.keywords.some((k) => k.trim() === word)) return { ...s, keywords: [...s.keywords, word] };
+    return s;
+  });
+}
+
+/** Which section, if any, has `title` itself as one of its words. */
+export function sectionWithWord(sections: ListSection[], title: string): string | null {
+  const word = normalizeKeyword(title);
+  return sections.find((s) => s.keywords.some((k) => k.trim() === word))?.id ?? null;
 }
 
 /** "2 avocados" → { quantity: "2", title: "avocados" }; leaves "2% milk" alone. */

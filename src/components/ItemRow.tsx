@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Flag, GripVertical, Info, Pencil, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Flag, FolderInput, GripVertical, Info, Pencil, Trash2 } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Item } from "../../shared/types";
@@ -15,6 +15,7 @@ export function ItemRow({
   sortable,
   onCompleted,
   onInfo,
+  onMove,
   onEnter,
 }: {
   item: Item;
@@ -22,6 +23,8 @@ export function ItemRow({
   sortable: boolean;
   onCompleted: (id: string) => void;
   onInfo: () => void;
+  /** Open the section picker; offered on long-press, by swiping, and in the info popover. */
+  onMove?: () => void;
   onEnter: () => void;
 }) {
   const [title, setTitle] = useState(item.title);
@@ -41,13 +44,16 @@ export function ItemRow({
     else if (t !== item.title) updateItem(item.id, { title: t });
   };
 
+  const longPress = useLongPress(onMove);
+
   const meta = [item.quantity && `Qty ${item.quantity}`, item.notes].filter(Boolean).join(" · ");
 
   return (
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform), transition }}
-      className={cn("relative", isDragging && "z-10 shadow-lg")}
+      className={cn("relative [-webkit-touch-callout:none]", isDragging && "z-10 shadow-lg")}
+      {...longPress}
     >
       <SwipeRow
         actions={[
@@ -57,6 +63,7 @@ export function ItemRow({
             className: "bg-orange-500",
             onAction: () => updateItem(item.id, { flagged: !item.flagged }),
           },
+          ...(onMove ? [{ label: "Move", icon: <FolderInput />, className: "bg-indigo-500", onAction: onMove }] : []),
           { label: "Delete", icon: <Trash2 />, className: "bg-red-500", onAction: () => deleteItem(item.id) },
         ]}
       >
@@ -125,6 +132,15 @@ export function ItemRow({
                 >
                   <Pencil className="size-4" /> Edit Details
                 </PopoverClose>
+                {onMove && (
+                  <PopoverClose
+                    onClick={onMove}
+                    className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-muted py-2 text-sm font-medium"
+                    style={{ color }}
+                  >
+                    <FolderInput className="size-4" /> Move to Section
+                  </PopoverClose>
+                )}
               </PopoverContent>
             </Popover>
             {sortable && (
@@ -142,4 +158,59 @@ export function ItemRow({
       </SwipeRow>
     </div>
   );
+}
+
+const LONG_PRESS_MS = 500;
+
+/**
+ * Hold a finger on a row to open its menu. Moving (scrolling, swiping) cancels it. Right-click and
+ * Android's long-press arrive as a context menu event and do the same.
+ */
+function useLongPress(onLongPress: (() => void) | undefined) {
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const fired = useRef(false);
+  if (!onLongPress) return {};
+
+  const cancel = () => {
+    clearTimeout(timer.current);
+    start.current = null;
+  };
+  const fire = () => {
+    cancel();
+    fired.current = true;
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    navigator.vibrate?.(10);
+    onLongPress();
+  };
+
+  return {
+    onPointerDown: (e: React.PointerEvent) => {
+      fired.current = false;
+      if (e.pointerType === "mouse") return; // mouse users right-click
+      start.current = { x: e.clientX, y: e.clientY };
+      clearTimeout(timer.current);
+      timer.current = setTimeout(fire, LONG_PRESS_MS);
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const s = start.current;
+      if (s && Math.hypot(e.clientX - s.x, e.clientY - s.y) > 8) cancel();
+    },
+    onPointerUp: cancel,
+    onPointerCancel: cancel,
+    // Lifting the finger after a long press shouldn't also tap whatever was under it.
+    onTouchEnd: (e: React.TouchEvent) => {
+      if (fired.current) e.preventDefault();
+    },
+    onClickCapture: (e: React.MouseEvent) => {
+      if (!fired.current) return;
+      fired.current = false;
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    onContextMenu: (e: React.MouseEvent) => {
+      e.preventDefault();
+      if (!fired.current) fire();
+    },
+  };
 }

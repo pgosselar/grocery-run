@@ -56,3 +56,5 @@
 
 @keyframes check-pop { 0% { transform: scale(0.6); } 60% { transform: scale(1.15); } 100% { transform: scale(1); } }
 .animate-check { animation: check-pop 220ms ease-out; }
+@keyframes toast-in { from { transform: translateY(12px); opacity: 0; } to { transform: none; opacity: 1; } }
+.animate-toast { animation: toast-in 180ms ease-out; }
