@@ -8,6 +8,8 @@ import { Login } from "@/components/Login";
 import { InviteScreen } from "@/components/InviteScreen";
 import { ResetPassword } from "@/components/ResetPassword";
 import { Toaster } from "@/components/Toaster";
+import { RecipesScreen } from "@/components/RecipesScreen";
+import { RecipeScreen } from "@/components/RecipeScreen";
 
 export default function App() {
   const { user } = useStore();
@@ -65,7 +67,15 @@ export default function App() {
   if (route.name === "invite") return <InviteScreen token={route.token} />;
   return (
     <>
-      {route.name === "list" ? <ListScreen key={route.id} id={route.id} /> : <ListsScreen />}
+      {route.name === "list" ? (
+        <ListScreen key={route.id} id={route.id} />
+      ) : route.name === "recipes" ? (
+        <RecipesScreen list={route.list} />
+      ) : route.name === "recipe" ? (
+        <RecipeScreen key={route.id} id={route.id} cook={!!route.cook} />
+      ) : (
+        <ListsScreen />
+      )}
       <Toaster />
     </>
   );

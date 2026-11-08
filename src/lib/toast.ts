@@ -4,7 +4,7 @@ import { useSyncExternalStore } from "react";
 export interface Toast {
   id: number;
   message: string;
-  undo?: () => void;
+  action?: { label: string; run: () => void };
 }
 
 let current: Toast | null = null;
@@ -15,8 +15,9 @@ const emit = () => listeners.forEach((l) => l());
 
 const SHOW_MS = 5000;
 
-export function showToast(message: string, undo?: () => void) {
-  current = { id: nextId++, message, undo };
+/** A plain function as the action means Undo. */
+export function showToast(message: string, action?: (() => void) | { label: string; run: () => void }) {
+  current = { id: nextId++, message, action: typeof action === "function" ? { label: "Undo", run: action } : action };
   clearTimeout(timer);
   timer = setTimeout(dismissToast, SHOW_MS);
   emit();

@@ -9,6 +9,7 @@ import {
 } from "./auth.ts";
 import { acceptInvite, inviteFor, onJoin, previewInvite } from "./users.ts";
 import { importRecipe } from "./recipe/index.ts";
+import { createRecipe, deleteRecipe, editRecipe, getRecipe, listRecipes, recipeShopping, tagRecipe, untagRecipe } from "./recipes.ts";
 import type { Op, ServerMessage } from "../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -41,6 +42,17 @@ app.get("/api/history", requireAuth, (req, res) => {
 });
 
 app.post("/api/recipe", requireAuth, importRecipe);
+
+// ---------- recipe box ----------
+
+app.get("/api/recipes", requireAuth, listRecipes);
+app.post("/api/recipes", requireAuth, createRecipe);
+app.get("/api/recipes/:id", requireAuth, getRecipe);
+app.patch("/api/recipes/:id", requireAuth, editRecipe);
+app.delete("/api/recipes/:id", requireAuth, deleteRecipe);
+app.post("/api/recipes/:id/lists", requireAuth, tagRecipe);
+app.delete("/api/recipes/:id/lists/:listId", requireAuth, untagRecipe);
+app.post("/api/recipes/:id/shopping", requireAuth, recipeShopping);
 
 app.post("/api/ops", requireAuth, (req, res) => {
   const { ops, clientId } = (req.body ?? {}) as { ops: Op[]; clientId: string };

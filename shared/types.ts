@@ -130,4 +130,64 @@ export interface RecipeImport {
   ingredients: ParsedIngredient[];
   cleanedBy: "claude" | "rules";
   warning?: string;
+  /** The whole recipe, ready to save to the recipe box. Absent when re-adding a saved recipe. */
+  draft?: RecipeDraft;
+  /** A saved recipe from the same link that this person can already see */
+  existingId?: string | null;
+}
+
+/** One line of a recipe's ingredients or steps. Headings group what follows ("For the sauce"). */
+export interface RecipeLine {
+  text: string;
+  heading?: boolean;
+}
+
+/** A cleaned-up shopping item kept with a saved recipe, so re-adding it needs no second cleanup. */
+export interface ShoppingItem {
+  original: string;
+  title: string;
+  quantity: string;
+  notes: string;
+  staple: boolean;
+  /** Name of the section it was sorted into when imported; a hint for other lists with the same section */
+  sectionHint?: string;
+}
+
+/** Everything about a recipe that its people can see and edit. */
+export interface RecipeDraft {
+  title: string;
+  url: string | null;
+  siteName: string | null;
+  author: string | null;
+  image: string | null;
+  description: string;
+  servings: string | null;
+  times: { prep?: string; cook?: string; total?: string };
+  ingredients: RecipeLine[];
+  steps: RecipeLine[];
+  notes: string;
+  /** null after the ingredients were edited; rebuilt the next time it's added to a list */
+  shopping: ShoppingItem[] | null;
+}
+
+export interface Recipe extends RecipeDraft {
+  id: string;
+  createdById: string;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+  /** The lists it's tagged with that this person is on */
+  lists: string[];
+  /** Whether this person saved it (and so may delete it) */
+  mine: boolean;
+}
+
+export interface RecipeSummary {
+  id: string;
+  title: string;
+  image: string | null;
+  siteName: string | null;
+  totalTime: string | null;
+  lists: string[];
+  updatedAt: number;
 }

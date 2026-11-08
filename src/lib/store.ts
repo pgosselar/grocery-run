@@ -91,8 +91,12 @@ function resetLocal() {
   serverVersion = -1;
   saveStorage(OUTBOX_KEY, []);
   saveStorage(CACHE_KEY, null);
+  saveStorage(RECIPE_CACHE_KEY, null);
   state = { ...state, lists: {}, items: {}, members: {}, loaded: false, pending: 0 };
 }
+
+/** Recipes this phone has opened, for cooking offline. Cleared whenever someone else signs in here. */
+export const RECIPE_CACHE_KEY = "gr.recipes.v1";
 
 export function useStore(): State {
   return useSyncExternalStore(
@@ -563,7 +567,7 @@ export async function requestRecipeImport(
 
 // ---------- auth ----------
 
-async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(path, {

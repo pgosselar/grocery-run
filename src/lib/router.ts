@@ -1,15 +1,21 @@
 import { useSyncExternalStore } from "react";
 
-export type Route = { name: "lists" } | { name: "list"; id: string } | { name: "invite"; token: string }
-  | { name: "reset"; token: string };
+export type Route =
+  | { name: "lists" }
+  | { name: "list"; id: string }
+  | { name: "invite"; token: string }
+  | { name: "reset"; token: string }
+  | { name: "recipes"; list?: string }
+  | { name: "recipe"; id: string; cook?: boolean };
 
 function parse(): Route {
-  const m = location.hash.match(/^#\/list\/([\w-]+)/);
-  if (m) return { name: "list", id: m[1] };
-  const inv = location.hash.match(/^#\/invite\/([\w-]+)/);
-  if (inv) return { name: "invite", token: inv[1] };
-  const reset = location.hash.match(/^#\/reset\/([\w-]+)/);
-  if (reset) return { name: "reset", token: reset[1] };
+  const h = location.hash;
+  let m: RegExpMatchArray | null;
+  if ((m = h.match(/^#\/list\/([\w-]+)/))) return { name: "list", id: m[1] };
+  if ((m = h.match(/^#\/invite\/([\w-]+)/))) return { name: "invite", token: m[1] };
+  if ((m = h.match(/^#\/reset\/([\w-]+)/))) return { name: "reset", token: m[1] };
+  if ((m = h.match(/^#\/recipes(?:\/([\w-]+))?/))) return m[1] ? { name: "recipes", list: m[1] } : { name: "recipes" };
+  if ((m = h.match(/^#\/recipe\/([\w-]+)(\/cook)?/))) return m[2] ? { name: "recipe", id: m[1], cook: true } : { name: "recipe", id: m[1] };
   return { name: "lists" };
 }
 
@@ -30,17 +36,26 @@ export function useRoute() {
   );
 }
 
+function hashFor(route: Route) {
+  switch (route.name) {
+    case "lists": return "#/";
+    case "list": return `#/list/${route.id}`;
+    case "recipes": return route.list ? `#/recipes/${route.list}` : "#/recipes";
+    case "recipe": return `#/recipe/${route.id}${route.cook ? "/cook" : ""}`;
+    default: return `#/${route.name}/${route.token}`;
+  }
+}
+
 export function navigate(route: Route, replace = false) {
-  const hash =
-    route.name === "list" ? `#/list/${route.id}` : route.name === "lists" ? "#/" : `#/${route.name}/${route.token}`;
+  const hash = hashFor(route);
   // Mark entries we push, so Back only ever steps back within the app.
   if (replace) history.replaceState(history.state, "", hash);
   else history.pushState({ inApp: true }, "", hash);
   window.dispatchEvent(new HashChangeEvent("hashchange"));
 }
 
-export function goBack() {
-  // Opened straight from a shared link (or a bookmark): there's no in-app page behind us.
-  if (current.name === "list" && history.state?.inApp) history.back();
-  else navigate({ name: "lists" }, true);
+/** Back within the app; opened straight from a link or bookmark, go to `fallback` instead of leaving. */
+export function goBack(fallback: Route = { name: "lists" }) {
+  if (history.state?.inApp) history.back();
+  else navigate(fallback, true);
 }

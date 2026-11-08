@@ -9,7 +9,7 @@ const DEFAULT_KEYWORDS: Record<string, string[]> = {
     "carrot", "celery", "cucumber", "pepper", "broccoli", "cauliflower", "zucchini", "squash", "mushroom", "corn",
     "pear", "peach", "plum", "mango", "pineapple", "melon", "watermelon", "cherr", "kiwi", "herb", "cilantro",
     "parsley", "basil", "mint", "scallion", "green onion", "cabbage", "beet", "radish", "asparagus", "green bean",
-    "sweet potato", "yam", "jalapeno", "jalapeño", "fruit", "veggie", "vegetable", "sprout", "leek", "shallot",
+    "sweet potato", "snap pea", "snow pea", "yam", "jalapeno", "jalapeño", "fruit", "veggie", "vegetable", "sprout", "leek", "shallot",
   ],
   Bakery: ["bread", "bagel", "bun", "roll", "baguette", "croissant", "muffin", "tortilla", "pita", "naan", "donut", "cake", "pie", "brioche", "sourdough", "english muffin"],
   "Meat & Seafood": [
@@ -26,7 +26,7 @@ const DEFAULT_KEYWORDS: Record<string, string[]> = {
     "rice", "pasta", "spaghetti", "noodle", "flour", "sugar", "salt", "oil", "olive oil", "vinegar", "sauce",
     "ketchup", "mustard", "mayo", "cereal", "oat", "oatmeal", "bean", "lentil", "soup", "broth", "stock", "can ",
     "canned", "peanut butter", "jam", "jelly", "honey", "syrup", "spice", "cinnamon", "paprika", "cumin", "baking",
-    "yeast", "vanilla", "tuna", "salsa", "olive", "pickle", "crouton", "black pepper", "white pepper", "pepper flakes", "cayenne", "peppercorn", "chili powder", "oregano", "garlic powder", "onion powder", "bay lea", "salt and pepper", "breadcrumb", "panko", "cornstarch", "worcestershire", "diced tomatoes", "crushed tomatoes", "tomato sauce", "tomato paste", "canned tomatoes", "chicken broth", "chicken stock", "beef broth", "beef stock", "vegetable broth", "vegetable stock", "coconut milk", "tamari", "soy sauce", "sesame oil", "chili garlic sauce", "hot sauce", "sriracha", "fish sauce", "hoisin", "brown rice", "maple syrup", "thyme", "rosemary", "smoked paprika", "italian seasoning", "chili flakes", "quinoa", "dressing", "soy sauce", "nut", "almond", "seasoning",
+    "yeast", "vanilla", "tuna", "salsa", "olive", "pickle", "crouton", "black pepper", "white pepper", "pepper flakes", "cayenne", "peppercorn", "chili powder", "oregano", "garlic powder", "onion powder", "bay lea", "salt and pepper", "breadcrumb", "panko", "cornstarch", "worcestershire", "diced tomatoes", "crushed tomatoes", "tomato sauce", "tomato paste", "canned tomatoes", "chicken broth", "chicken stock", "beef broth", "beef stock", "vegetable broth", "vegetable stock", "coconut milk", "tamari", "soy sauce", "sesame oil", "chili garlic sauce", "hot sauce", "sriracha", "fish sauce", "hoisin", "brown rice", "maple syrup", "thyme", "rosemary", "smoked paprika", "italian seasoning", "chili flakes", "quinoa", "dressing", "soy sauce", "nut", "almond", "seasoning", "chickpea", "garbanzo",
   ],
   Snacks: ["chip", "cracker", "cookie", "pretzel", "popcorn", "granola", "bar", "candy", "chocolate", "snack", "goldfish", "trail mix"],
   Beverages: ["water", "juice", "soda", "coffee", "tea", "beer", "wine", "kombucha", "sparkling", "lemonade", "seltzer", "gatorade", "drink"],
@@ -84,7 +84,11 @@ export function categorize(title: string, sections: ListSection[]): string {
       if (word === whole) return s.id;
       const at = t.lastIndexOf(w);
       if (at === -1) continue;
-      const c = { id: s.id, form: word.split(" ").some((x) => FORM_WORDS.has(x)), end: at + w.trimEnd().length, len: word.length };
+      // Measure to the end of the word the match is in, so a stem ("chickpea", "strawberr") ties with a
+      // plural-matching word ("peas", "berries") instead of losing to it.
+      let end = at + w.trimEnd().length;
+      while (end < t.length && /[\p{L}\p{N}]/u.test(t[end])) end++;
+      const c = { id: s.id, form: word.split(" ").some((x) => FORM_WORDS.has(x)), end, len: word.length };
       if (!best || beats(c, best)) best = c;
     }
   }

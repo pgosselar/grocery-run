@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ChefHat, ChevronLeft, Ellipsis, Eye, EyeOff, History, Info, LayoutList, ListOrdered, Plus, Rows3, Trash2, UserPlus, Users,
+  BookOpen, ChefHat, ChevronLeft, Ellipsis, Eye, EyeOff, History, Info, LayoutList, ListOrdered, Plus, Rows3, Trash2, UserPlus, Users,
 } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import type { Item } from "../../shared/types";
 import { addItem, clearCompleted, itemHistory, listItems, reorderItems, updateList, useStore } from "@/lib/store";
-import { goBack } from "@/lib/router";
+import { goBack, navigate } from "@/lib/router";
 import { LIST_COLORS } from "@/lib/colors";
 import { resolveSection, sectionName } from "@/lib/sections";
 import { safeStorage, saveStorage } from "@/lib/utils";
@@ -101,7 +101,7 @@ export function ListScreen({ id }: { id: string }) {
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col">
       <header className="pt-safe sticky top-0 z-10 bg-background/85 px-2 pb-1 backdrop-blur-xl">
         <div className="flex h-10 items-center justify-between">
-          <button className="flex items-center text-[17px]" style={{ color }} onClick={goBack}>
+          <button className="flex items-center text-[17px]" style={{ color }} onClick={() => goBack()}>
             <ChevronLeft className="size-7" strokeWidth={2.25} /> Lists
           </button>
           <div className="flex items-center gap-1">
@@ -138,6 +138,9 @@ export function ListScreen({ id }: { id: string }) {
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setImportOpen(true)}>
                   Import Recipe <ChefHat />
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => navigate({ name: "recipes", list: id })}>
+                  Recipes <BookOpen />
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setHistoryFor(null)}>
                   Recently Completed <History />
@@ -234,7 +237,7 @@ export function ListScreen({ id }: { id: string }) {
       <ListEditor open={infoOpen} onOpenChange={setInfoOpen} list={list} />
       <ShareSheet list={list} open={shareOpen} onClose={() => setShareOpen(false)} color={color} />
       <SectionsSheet list={list} open={sectionsOpen} onClose={() => setSectionsOpen(false)} color={color} />
-      <RecipeImportSheet open={importOpen} onClose={() => setImportOpen(false)} listId={id} color={color} />
+      <RecipeImportSheet open={importOpen} onClose={() => setImportOpen(false)} listId={id} />
       <HistorySheet listId={id} section={historyFor} onClose={() => setHistoryFor(undefined)} color={color} />
     </div>
   );

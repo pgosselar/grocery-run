@@ -15,15 +15,15 @@ export function Toaster() {
         className="animate-toast pointer-events-auto flex w-full max-w-md items-center gap-3 rounded-2xl bg-foreground py-3 pr-2 pl-4 text-[15px] text-background shadow-xl"
       >
         <span className="min-w-0 flex-1">{toast.message}</span>
-        {toast.undo && (
+        {toast.action && (
           <button
             className="shrink-0 rounded-full px-3 py-1.5 font-semibold text-background/80 active:bg-background/15"
             onClick={() => {
-              toast.undo!();
+              toast.action!.run();
               dismissToast();
             }}
           >
-            Undo
+            {toast.action.label}
           </button>
         )}
       </div>

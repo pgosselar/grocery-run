@@ -1,11 +1,18 @@
 // Pull the ingredient list out of a recipe page. Nearly every recipe site publishes
 // schema.org Recipe data as JSON-LD for Google, which is far cleaner than scraping text.
 
+import type { RecipeLine } from "../../shared/types.ts";
+
 export interface ExtractedRecipe {
   name: string;
   ingredients: string[];
   image: string | null;
   servings: string | null;
+  steps: RecipeLine[];
+  description: string;
+  author: string | null;
+  siteName: string | null;
+  times: { prep?: string; cook?: string; total?: string };
 }
 
 const ENTITIES: Record<string, string> = {
@@ -59,6 +66,57 @@ function text(v: Json | undefined): string | null {
   return null;
 }
 
+/** "PT1H15M" → "1 hr 15 min". Anything unparseable is shown as written. */
+export function formatDuration(v: Json | undefined): string | undefined {
+  const raw = text(v);
+  if (!raw) return undefined;
+  const m = raw.match(/^P(?:(\d+)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:\d+(?:\.\d+)?S)?)?$/i);
+  if (!m) return raw.length <= 40 ? raw : undefined;
+  let mins = Math.round(Number(m[1] ?? 0) * 1440 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0));
+  if (!mins) return undefined;
+  const h = Math.floor(mins / 60);
+  mins %= 60;
+  return [h && `${h} hr`, mins && `${mins} min`].filter(Boolean).join(" ");
+}
+
+/** schema.org recipeInstructions: a string, a list of strings, HowToSteps, or HowToSections of HowToSteps. */
+export function instructionLines(v: Json | undefined, depth = 0): RecipeLine[] {
+  if (v == null || depth > 4) return [];
+  if (typeof v === "string") {
+    // One blob of HTML or text: split on paragraphs, list items and line breaks.
+    return v
+      .split(/<\/(?:p|li|div)>|<br\s*\/?>|\n+/i)
+      .map(stripTags)
+      .filter(Boolean)
+      .map((t) => ({ text: t }));
+  }
+  if (Array.isArray(v)) return v.flatMap((x) => instructionLines(x, depth + 1));
+  if (typeof v !== "object") return [];
+  const type = v["@type"];
+  const isSection = type === "HowToSection" || (Array.isArray(type) && type.includes("HowToSection"));
+  if (isSection || (v.itemListElement && !v.text)) {
+    const name = text(v.name);
+    const inner = instructionLines(v.itemListElement ?? null, depth + 1);
+    return name ? [{ text: name, heading: true }, ...inner] : inner;
+  }
+  const t = text(v.text) ?? text(v.name);
+  return t ? [{ text: t }] : [];
+}
+
+function authorName(v: Json | undefined): string | null {
+  if (Array.isArray(v)) return authorName(v[0]);
+  if (typeof v === "string") return stripTags(v) || null;
+  if (v && typeof v === "object" && typeof v.name === "string") return stripTags(v.name) || null;
+  return null;
+}
+
+function metaContent(html: string, prop: string): string | null {
+  const re = new RegExp(`<meta[^>]*(?:property|name)=["']${prop}["'][^>]*content=["']([^"']+)["']`, "i");
+  const alt = new RegExp(`<meta[^>]*content=["']([^"']+)["'][^>]*(?:property|name)=["']${prop}["']`, "i");
+  const m = html.match(re) ?? html.match(alt);
+  return m ? stripTags(m[1]) || null : null;
+}
+
 function fromJsonLd(html: string): ExtractedRecipe | null {
   const re = /<script[^>]*type\s*=\s*["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script>/gi;
   for (const m of html.matchAll(re)) {
@@ -80,6 +138,15 @@ function fromJsonLd(html: string): ExtractedRecipe | null {
       ingredients: list,
       image: text(recipe.image),
       servings: text(recipe.recipeYield),
+      steps: instructionLines(recipe.recipeInstructions),
+      description: (text(recipe.description) ?? "").slice(0, 1000),
+      author: authorName(recipe.author),
+      siteName: metaContent(html, "og:site_name"),
+      times: {
+        prep: formatDuration(recipe.prepTime),
+        cook: formatDuration(recipe.cookTime),
+        total: formatDuration(recipe.totalTime),
+      },
     };
   }
   return null;
@@ -104,6 +171,19 @@ export function extractRecipe(html: string): ExtractedRecipe | null {
   const ld = fromJsonLd(html);
   if (ld) return ld;
   const micro = fromMicrodata(html);
-  if (micro.length) return { name: pageTitle(html), ingredients: micro, image: null, servings: null };
-  return null;
+  if (!micro.length) return null;
+  const steps: RecipeLine[] = [];
+  const el = /<(li|p|div|ol)[^>]*itemprop=["']recipeInstructions["'][^>]*>([\s\S]*?)<\/\1>/gi;
+  for (const m of html.matchAll(el)) steps.push(...instructionLines(m[2]));
+  return {
+    name: pageTitle(html),
+    ingredients: micro,
+    image: metaContent(html, "og:image"),
+    servings: null,
+    steps,
+    description: metaContent(html, "og:description")?.slice(0, 1000) ?? "",
+    author: null,
+    siteName: metaContent(html, "og:site_name"),
+    times: {},
+  };
 }

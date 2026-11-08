@@ -73,6 +73,29 @@ db.exec(`
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     expires_at INTEGER NOT NULL
   );
+
+  -- The recipe box. A recipe is visible to whoever saved it and to everyone on a list it's tagged with.
+  CREATE TABLE IF NOT EXISTS recipes (
+    id TEXT PRIMARY KEY,
+    data TEXT NOT NULL,
+    url TEXT,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS recipes_url ON recipes(url);
+  CREATE INDEX IF NOT EXISTS recipes_creator ON recipes(created_by);
+  CREATE TABLE IF NOT EXISTS recipe_lists (
+    recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+    list_id TEXT NOT NULL,
+    added_by TEXT NOT NULL,
+    added_at INTEGER NOT NULL,
+    PRIMARY KEY (recipe_id, list_id)
+  );
+  CREATE INDEX IF NOT EXISTS recipe_lists_list ON recipe_lists(list_id);
+  CREATE VIRTUAL TABLE IF NOT EXISTS recipes_fts USING fts5(
+    id UNINDEXED, title, ingredients, body, tokenize = "porter unicode61 remove_diacritics 2"
+  );
 `);
 
 export function tx<T>(fn: () => T): T {
@@ -198,6 +221,7 @@ const deleteList = db.prepare(`
   ON CONFLICT(id) DO UPDATE SET deleted = 1, updated_at = excluded.updated_at
 `);
 const deleteListItems = db.prepare("UPDATE items SET deleted = 1, updated_at = ? WHERE list_id = ?");
+const untagRecipes = db.prepare("DELETE FROM recipe_lists WHERE list_id = ?");
 const deleteListInvites = db.prepare("DELETE FROM invites WHERE list_id = ?");
 const upsertItem = db.prepare(`
   INSERT INTO items(id, list_id, data, updated_at) VALUES(?, ?, ?, ?)
@@ -282,6 +306,7 @@ export function applyOps(actor: Actor, ops: Op[]): { deliveries: Delivery[]; rej
           deleteListItems.run(op.at, op.id);
           deleteMembers.run(op.id);
           deleteListInvites.run(op.id);
+          untagRecipes.run(op.id);
           deliveries.push({ op, userIds: audience });
           break;
         }
@@ -352,6 +377,40 @@ const userLists = db.prepare(`
   WHERE m.user_id = ? AND l.deleted = 0
 `);
 const listItems = db.prepare("SELECT data FROM items WHERE list_id = ? AND deleted = 0");
+
+/**
+ * Words added to the standard sections after lists were created. Each list keeps its own copy of its
+ * words, so give existing lists these once, and only where none of that list's sections has the word yet.
+ */
+const ADDED_KEYWORDS: { key: string; words: Record<string, string[]> }[] = [
+  { key: "keywords.2026-11-chickpeas", words: { pantry: ["chickpea", "garbanzo"], produce: ["snap pea", "snow pea"] } },
+];
+for (const { key, words } of ADDED_KEYWORDS) {
+  if (meta(key)) continue;
+  tx(() => {
+    const rows = db.prepare("SELECT id, data FROM lists WHERE deleted = 0").all() as { id: string; data: string }[];
+    const now = Date.now();
+    let changed = 0;
+    for (const row of rows) {
+      const list = JSON.parse(row.data) as GroceryList;
+      if (!Array.isArray(list.sections)) continue;
+      const has = new Set(list.sections.flatMap((s) => s.keywords.map((k) => k.trim())));
+      let touched = false;
+      list.sections = list.sections.map((s) => {
+        const add = (words[s.id] ?? []).filter((w) => !has.has(w));
+        if (!add.length) return s;
+        touched = true;
+        return { ...s, keywords: [...s.keywords, ...add] };
+      });
+      if (!touched) continue;
+      list.updatedAt = now;
+      upsertList.run(row.id, JSON.stringify(list), now);
+      changed++;
+    }
+    setMetaValue(key, String(now));
+    if (changed) setMetaValue("version", String(version() + 1));
+  });
+}
 
 export function snapshot(userId: string): Snapshot {
   const lists = (userLists.all(userId) as { data: string; position: number }[]).map((r) => ({

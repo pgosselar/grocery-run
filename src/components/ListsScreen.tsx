@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ChevronRight, GripVertical, Info, Plus, ShoppingBasket, Users } from "lucide-react";
+import { BookOpen, ChevronRight, GripVertical, Info, Plus, ShoppingBasket, Users } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -85,6 +85,18 @@ export function ListsScreen() {
                 </div>
               </SortableContext>
             </DndContext>
+
+            <h2 className="mt-7 mb-2 px-1 text-xl font-bold">Cooking</h2>
+            <button
+              className="flex w-full items-center gap-3 rounded-xl bg-card py-2.5 pr-3 pl-3 text-left shadow-sm active:bg-accent"
+              onClick={() => navigate({ name: "recipes" })}
+            >
+              <span className="bg-primary flex size-8.5 shrink-0 items-center justify-center rounded-full text-white">
+                <BookOpen className="size-4.5" />
+              </span>
+              <span className="flex-1 py-1.5 text-[17px]">Recipes</span>
+              <ChevronRight className="size-5 text-muted-foreground/60" />
+            </button>
           </>
         )}
       </main>
