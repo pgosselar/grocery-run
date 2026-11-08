@@ -16,10 +16,14 @@ const emit = () => listeners.forEach((l) => l());
 const SHOW_MS = 5000;
 
 /** A plain function as the action means Undo. */
-export function showToast(message: string, action?: (() => void) | { label: string; run: () => void }) {
+export function showToast(
+  message: string,
+  action?: (() => void) | { label: string; run: () => void },
+  opts: { sticky?: boolean } = {},
+) {
   current = { id: nextId++, message, action: typeof action === "function" ? { label: "Undo", run: action } : action };
   clearTimeout(timer);
-  timer = setTimeout(dismissToast, SHOW_MS);
+  if (!opts.sticky) timer = setTimeout(dismissToast, SHOW_MS);
   emit();
 }
 

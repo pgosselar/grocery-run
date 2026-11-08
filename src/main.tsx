@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { startUpdates } from "./lib/update";
 
 // Follow the system light/dark setting.
 const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -18,3 +19,4 @@ createRoot(document.getElementById("root")!).render(
   </StrictMode>,
 );
 applyTheme();
+startUpdates();
