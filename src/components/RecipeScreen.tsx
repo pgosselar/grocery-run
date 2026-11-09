@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 import {
-  ChefHat, ChevronLeft, Clock, CookingPot, Ellipsis, ExternalLink, ListPlus, Loader2, Pencil, Trash2, Unlink, Users, X,
+  ChefHat, ChevronLeft, Clock, CookingPot, Ellipsis, ExternalLink, ImageOff, ListPlus, Loader2, Pencil, Trash2, Unlink, Users, X,
 } from "lucide-react";
 import type { Recipe, RecipeLine } from "../../shared/types";
 import { useStore } from "@/lib/store";
-import { cachedRecipe, deleteRecipe, getRecipe, untagRecipe } from "@/lib/recipes";
+import { cachedRecipe, deleteRecipe, getRecipe, removeDishPhoto, untagRecipe } from "@/lib/recipes";
 import { goBack, navigate } from "@/lib/router";
 import { LIST_COLORS } from "@/lib/colors";
 import { showToast } from "@/lib/toast";
@@ -16,6 +16,7 @@ import {
 import { RecipeImportSheet } from "./RecipeImportSheet";
 import { RecipeEditSheet } from "./RecipeEditSheet";
 import { CookMode } from "./CookMode";
+import { DishHero } from "./DishPhoto";
 
 export function RecipeScreen({ id, cook }: { id: string; cook: boolean }) {
   const state = useStore();
@@ -60,6 +61,15 @@ export function RecipeScreen({ id, cook }: { id: string; cook: boolean }) {
     }
   };
 
+  const removePhoto = async () => {
+    try {
+      setRecipe(await removeDishPhoto(recipe.id));
+      showToast("Photo removed.");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Couldn't remove the photo.");
+    }
+  };
+
   const remove = async () => {
     try {
       await deleteRecipe(recipe.id);
@@ -88,6 +98,11 @@ export function RecipeScreen({ id, cook }: { id: string; cook: boolean }) {
               <DropdownMenuItem onSelect={() => setAddOpen(true)}>
                 Add to a List <ListPlus />
               </DropdownMenuItem>
+              {recipe.photo && (
+                <DropdownMenuItem onSelect={removePhoto}>
+                  Remove Dish Photo <ImageOff />
+                </DropdownMenuItem>
+              )}
               {tags.length > 0 && <DropdownMenuSeparator />}
               {tags.map((l) => (
                 <DropdownMenuItem key={l.id} onSelect={() => untag(l.id, l.name)}>
@@ -108,9 +123,7 @@ export function RecipeScreen({ id, cook }: { id: string; cook: boolean }) {
       </header>
 
       <main className="flex-1 px-4 pb-24">
-        {recipe.image && (
-          <img src={recipe.image} alt="" referrerPolicy="no-referrer" className="mb-4 aspect-[16/10] w-full rounded-2xl object-cover shadow-sm" />
-        )}
+        <DishHero recipe={recipe} color={color} onSaved={setRecipe} />
         <h1 className="text-[28px] leading-tight font-bold tracking-tight">{recipe.title}</h1>
         {(recipe.siteName || recipe.author) && (
           <p className="mt-1 text-sm text-muted-foreground">
@@ -181,12 +194,13 @@ export function RecipeScreen({ id, cook }: { id: string; cook: boolean }) {
 
         <p className="mt-8 text-center text-xs text-muted-foreground">
           Saved by {recipe.createdBy} · {formatWhen(recipe.createdAt)}
+          {recipe.photo && <> · Photo by {recipe.photo.addedBy}</>}
         </p>
       </main>
 
       <RecipeImportSheet open={addOpen} onClose={() => setAddOpen(false)} recipeId={recipe.id} onTagged={setRecipe} />
       <RecipeEditSheet recipe={recipe} open={editOpen} onClose={() => setEditOpen(false)} onSaved={setRecipe} />
-      {cook && <CookMode recipe={recipe} color={color} onClose={() => goBack({ name: "recipe", id })} />}
+      {cook && <CookMode recipe={recipe} color={color} onRecipe={setRecipe} onClose={() => goBack({ name: "recipe", id })} />}
     </div>
   );
 }

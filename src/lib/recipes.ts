@@ -37,7 +37,7 @@ function forget(id: string) {
 const summaryOf = (r: Recipe): RecipeSummary => ({
   id: r.id,
   title: r.title,
-  image: r.image,
+  image: r.photo?.thumb ?? r.image,
   siteName: r.siteName,
   totalTime: r.times.total ?? null,
   lists: r.lists,
@@ -110,6 +110,19 @@ export async function untagRecipe(id: string, listId: string): Promise<Recipe | 
   if (recipe) remember(recipe);
   else forget(id);
   return recipe;
+}
+
+/** Give a recipe a photo of the finished dish, replacing any it had. */
+export async function setDishPhoto(id: string, photo: { full: string; thumb: string }) {
+  const r = await api<Recipe>("PUT", `/api/recipes/${id}/photo`, photo);
+  remember(r);
+  return r;
+}
+
+export async function removeDishPhoto(id: string) {
+  const r = await api<Recipe>("DELETE", `/api/recipes/${id}/photo`);
+  remember(r);
+  return r;
 }
 
 export function recipeShopping(id: string, listId: string) {

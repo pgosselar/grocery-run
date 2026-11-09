@@ -3,7 +3,7 @@
 import type { Request, Response } from "express";
 import { randomUUID } from "node:crypto";
 import type {
-  ListSection, ParsedIngredient, Recipe, RecipeDraft, RecipeImport, RecipeLine, RecipeSummary, ShoppingItem,
+  DishPhoto, ListSection, ParsedIngredient, Recipe, RecipeDraft, RecipeImport, RecipeLine, RecipeSummary, ShoppingItem,
 } from "../shared/types.ts";
 import { categorize, defaultSections } from "../shared/sections.ts";
 import { normalizeTime } from "../shared/time.ts";
@@ -112,6 +112,27 @@ const VISIBLE = `
     WHERE rl.recipe_id = r.id AND m.user_id = ?))
 `;
 const canSeeStmt = db.prepare(`SELECT 1 FROM recipes r WHERE r.id = ? AND ${VISIBLE}`);
+const photoInfo = db.prepare(`
+  SELECT p.recipe_id, p.added_at, COALESCE(u.name, 'Someone') AS added_by
+  FROM recipe_photos p LEFT JOIN users u ON u.id = p.added_by WHERE p.recipe_id = ?
+`);
+const allPhotoTimes = db.prepare("SELECT recipe_id, added_at FROM recipe_photos");
+const photoBytes = db.prepare("SELECT full, thumb, added_at FROM recipe_photos WHERE recipe_id = ?");
+const putPhoto = db.prepare(`
+  INSERT INTO recipe_photos(recipe_id, full, thumb, added_by, added_at) VALUES(?, ?, ?, ?, ?)
+  ON CONFLICT(recipe_id) DO UPDATE SET full = excluded.full, thumb = excluded.thumb,
+    added_by = excluded.added_by, added_at = excluded.added_at
+`);
+const deletePhoto = db.prepare("DELETE FROM recipe_photos WHERE recipe_id = ?");
+
+// The time in the address makes each photo's URL unique, so phones can cache it for good.
+const photoUrl = (id: string, at: number, size: "full" | "thumb") => `/api/recipes/${id}/photo?size=${size}&v=${at}`;
+
+function dishPhoto(id: string): DishPhoto | null {
+  const p = photoInfo.get(id) as { added_at: number; added_by: string } | undefined;
+  return p ? { url: photoUrl(id, p.added_at, "full"), thumb: photoUrl(id, p.added_at, "thumb"), addedBy: p.added_by, addedAt: p.added_at } : null;
+}
+
 const visibleRows = db.prepare(`SELECT r.id, r.data, r.updated_at FROM recipes r WHERE ${VISIBLE} ORDER BY r.updated_at DESC`);
 const visibleByUrl = db.prepare(`SELECT r.id FROM recipes r WHERE r.url = ? AND ${VISIBLE} ORDER BY r.created_at LIMIT 1`);
 /** Tags limited to lists this person is on: other people's list names aren't theirs to see. */
@@ -152,6 +173,7 @@ function recipeFor(id: string, userId: string): Recipe | null {
     updatedAt: row.updated_at,
     lists: (myTagsFor.all(userId, id) as { list_id: string }[]).map((r) => r.list_id),
     mine: row.created_by === userId,
+    photo: dishPhoto(id),
   };
 }
 
@@ -184,12 +206,14 @@ export function searchRecipes(userId: string, q: string, listId: string | null):
     rows = [];
   }
   if (listId) rows = rows.filter((r) => tags.get(r.id)?.includes(listId));
+  const photos = new Map((allPhotoTimes.all() as { recipe_id: string; added_at: number }[]).map((p) => [p.recipe_id, p.added_at]));
   return rows.slice(0, 300).map((r) => {
     const d = JSON.parse(r.data) as RecipeDraft;
+    const at = photos.get(r.id);
     return {
       id: r.id,
       title: d.title,
-      image: d.image,
+      image: at ? photoUrl(r.id, at, "thumb") : d.image,
       siteName: d.siteName,
       totalTime: d.times.total ?? null,
       lists: tags.get(r.id) ?? [],
@@ -345,6 +369,52 @@ export async function recipeShopping(req: Request, res: Response) {
     save(id, { ...draftOf(id), shopping: toShopping(ingredients, sections) });
   }
 
-  const body: RecipeImport = { name: d.title, url: d.url, image: d.image, servings: d.servings, ingredients, cleanedBy, warning };
+  const image = dishPhoto(id)?.thumb ?? d.image;
+  const body: RecipeImport = { name: d.title, url: d.url, image, servings: d.servings, ingredients, cleanedBy, warning };
   res.json(body);
+}
+
+// ---------- dish photos ----------
+
+const MAX_PHOTO = 4_000_000;
+const MAX_THUMB = 600_000;
+
+/** Base64 JPEG → bytes, or null if it isn't one (or is too big). */
+function jpeg(v: unknown, max: number): Buffer | null {
+  if (typeof v !== "string" || v.length > Math.ceil((max * 4) / 3) + 4) return null;
+  const b = Buffer.from(v, "base64");
+  return b.length > 3 && b.length <= max && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff ? b : null;
+}
+
+export function getDishPhoto(req: Request, res: Response) {
+  const id = String(req.params.id);
+  if (!canSee(id, currentUser(res).id)) return notFound(res);
+  const p = photoBytes.get(id) as { full: Uint8Array; thumb: Uint8Array; added_at: number } | undefined;
+  if (!p) return notFound(res);
+  const bytes = req.query.size === "thumb" ? p.thumb : p.full;
+  // Only cache for good when asked for this exact version; an old link must not stick.
+  const current = String(req.query.v ?? "") === String(p.added_at);
+  res.set({ "Content-Type": "image/jpeg", "Cache-Control": current ? "private, max-age=31536000, immutable" : "private, no-cache" });
+  res.send(Buffer.from(bytes));
+}
+
+/** Anyone who can see a recipe can give it a photo (or replace one), like editing it. */
+export function putDishPhoto(req: Request, res: Response) {
+  const user = currentUser(res);
+  const id = String(req.params.id);
+  if (!canSee(id, user.id)) return notFound(res);
+  const { full, thumb } = (req.body ?? {}) as { full?: unknown; thumb?: unknown };
+  const f = jpeg(full, MAX_PHOTO);
+  const t = jpeg(thumb, MAX_THUMB);
+  if (!f || !t) return res.status(400).json({ error: "That photo couldn't be saved. Try another one." });
+  putPhoto.run(id, f, t, user.id, Date.now());
+  res.json(recipeFor(id, user.id));
+}
+
+export function deleteDishPhoto(req: Request, res: Response) {
+  const user = currentUser(res);
+  const id = String(req.params.id);
+  if (!canSee(id, user.id)) return notFound(res);
+  deletePhoto.run(id);
+  res.json(recipeFor(id, user.id));
 }

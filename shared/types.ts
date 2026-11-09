@@ -182,11 +182,21 @@ export interface Recipe extends RecipeDraft {
   lists: string[];
   /** Whether this person saved it (and so may delete it) */
   mine: boolean;
+  /** A photo of the finished dish someone here took. Shown instead of the source site's image. */
+  photo: DishPhoto | null;
+}
+
+export interface DishPhoto {
+  url: string;
+  thumb: string;
+  addedBy: string;
+  addedAt: number;
 }
 
 export interface RecipeSummary {
   id: string;
   title: string;
+  /** The dish photo's thumbnail if there is one, else the source site's image */
   image: string | null;
   siteName: string | null;
   totalTime: string | null;

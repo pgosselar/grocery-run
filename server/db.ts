@@ -93,6 +93,14 @@ db.exec(`
     PRIMARY KEY (recipe_id, list_id)
   );
   CREATE INDEX IF NOT EXISTS recipe_lists_list ON recipe_lists(list_id);
+  -- A photo someone took of the finished dish. In the database, so the nightly backups include it.
+  CREATE TABLE IF NOT EXISTS recipe_photos (
+    recipe_id TEXT PRIMARY KEY REFERENCES recipes(id) ON DELETE CASCADE,
+    full BLOB NOT NULL,
+    thumb BLOB NOT NULL,
+    added_by TEXT NOT NULL,
+    added_at INTEGER NOT NULL
+  );
   CREATE VIRTUAL TABLE IF NOT EXISTS recipes_fts USING fts5(
     id UNINDEXED, title, ingredients, body, tokenize = "porter unicode61 remove_diacritics 2"
   );

@@ -10,7 +10,10 @@ import {
 } from "./auth.ts";
 import { acceptInvite, inviteFor, onJoin, previewInvite } from "./users.ts";
 import { importPhoto, importRecipe } from "./recipe/index.ts";
-import { createRecipe, deleteRecipe, editRecipe, getRecipe, listRecipes, recipeShopping, tagRecipe, untagRecipe } from "./recipes.ts";
+import {
+  createRecipe, deleteDishPhoto, deleteRecipe, editRecipe, getDishPhoto, getRecipe, listRecipes, putDishPhoto, recipeShopping,
+  tagRecipe, untagRecipe,
+} from "./recipes.ts";
 import type { Op, ServerMessage } from "../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -18,6 +21,7 @@ const app = express();
 app.set("trust proxy", true);
 // Recipe photos are the only big uploads (already shrunk on the phone); everything else stays small.
 app.use("/api/recipe/photo", express.json({ limit: "16mb" }));
+app.use("/api/recipes/:id/photo", express.json({ limit: "8mb" }));
 app.use(express.json({ limit: "1mb" }));
 
 // ---------- accounts ----------
@@ -62,6 +66,9 @@ app.delete("/api/recipes/:id", requireAuth, deleteRecipe);
 app.post("/api/recipes/:id/lists", requireAuth, tagRecipe);
 app.delete("/api/recipes/:id/lists/:listId", requireAuth, untagRecipe);
 app.post("/api/recipes/:id/shopping", requireAuth, recipeShopping);
+app.get("/api/recipes/:id/photo", requireAuth, getDishPhoto);
+app.put("/api/recipes/:id/photo", requireAuth, putDishPhoto);
+app.delete("/api/recipes/:id/photo", requireAuth, deleteDishPhoto);
 
 app.post("/api/ops", requireAuth, (req, res) => {
   const { ops, clientId } = (req.body ?? {}) as { ops: Op[]; clientId: string };

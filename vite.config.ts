@@ -29,7 +29,19 @@ export default defineConfig({
       },
       workbox: {
         navigateFallbackDenylist: [/^\/api/, /^\/ws/],
-        runtimeCaching: [],
+        runtimeCaching: [
+          {
+            // Dish photos, so a recipe still shows its photo without signal. Each version has its own
+            // address, so a cached one never goes stale.
+            urlPattern: /\/api\/recipes\/[^/]+\/photo\?/,
+            handler: "CacheFirst",
+            options: {
+              cacheName: "dish-photos",
+              expiration: { maxEntries: 150 },
+              cacheableResponse: { statuses: [200] },
+            },
+          },
+        ],
       },
     }),
   ],

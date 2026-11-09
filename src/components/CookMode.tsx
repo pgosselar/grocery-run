@@ -2,13 +2,25 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Sun, X } from "lucide-react";
 import type { Recipe } from "../../shared/types";
 import { safeStorage, saveStorage } from "@/lib/utils";
+import { DishPhotoPrompt } from "./DishPhoto";
 import { cn } from "@/lib/utils";
 
 /**
  * Full-screen cooking view: big type, ingredients to tick off, steps to step through, and the screen kept
  * awake. Progress is remembered on this phone, so leaving to check a timer doesn't lose your place.
  */
-export function CookMode({ recipe, color, onClose }: { recipe: Recipe; color: string; onClose: () => void }) {
+export function CookMode({
+  recipe,
+  color,
+  onClose,
+  onRecipe,
+}: {
+  recipe: Recipe;
+  color: string;
+  onClose: () => void;
+  /** The recipe changed here (a dish photo was added) */
+  onRecipe: (r: Recipe) => void;
+}) {
   const key = `gr.cook.${recipe.id}`;
   const [progress, setProgress] = useState(() =>
     safeStorage<{ done: number[]; step: number; at: number }>(key, { done: [], step: 0, at: 0 }),
@@ -20,6 +32,8 @@ export function CookMode({ recipe, color, onClose }: { recipe: Recipe; color: st
   const current = fresh ? 0 : Math.min(progress.step, Math.max(steps.length - 1, 0));
   const awake = useWakeLock();
   const stepRefs = useRef<(HTMLElement | null)[]>([]);
+  const [askPhoto, setAskPhoto] = useState(false);
+  const last = current === steps.length - 1;
 
   const update = (p: Partial<typeof progress>) => {
     const next = { done: [...done], step: current, ...p, at: Date.now() };
@@ -36,6 +50,12 @@ export function CookMode({ recipe, color, onClose }: { recipe: Recipe; color: st
     const n = Math.max(0, Math.min(steps.length - 1, s));
     update({ step: n });
     stepRefs.current[n]?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+  /** Finished: start fresh next time, and offer to photograph the dish if the recipe has no photo of its own. */
+  const finish = () => {
+    saveStorage(key, { done: [], step: 0, at: 0 });
+    if (recipe.photo) onClose();
+    else setAskPhoto(true);
   };
 
   // Steps are numbered within each heading's group, like the recipe page.
@@ -137,16 +157,16 @@ export function CookMode({ recipe, color, onClose }: { recipe: Recipe; color: st
               Step {current + 1} of {steps.length}
             </span>
             <button
-              onClick={() => go(current + 1)}
-              disabled={current === steps.length - 1}
-              className="flex h-12 items-center gap-1 rounded-xl px-5 font-semibold text-white disabled:opacity-40"
+              onClick={() => (last ? finish() : go(current + 1))}
+              className="flex h-12 items-center gap-1 rounded-xl px-5 font-semibold text-white"
               style={{ backgroundColor: color }}
             >
-              Next <ChevronRight className="size-5" />
+              {last ? <>Done <Check className="size-5" /></> : <>Next <ChevronRight className="size-5" /></>}
             </button>
           </div>
         </footer>
       )}
+      {askPhoto && <DishPhotoPrompt recipe={recipe} color={color} onSaved={onRecipe} onDone={onClose} />}
     </div>
   );
 }
