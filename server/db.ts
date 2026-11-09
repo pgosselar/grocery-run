@@ -1,10 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { DB_PATH } from "./paths.ts";
 import type { GroceryList, HistoryEntry, Item, Member, Op, Snapshot } from "../shared/types.ts";
 import { defaultSections, resolveSection } from "../shared/sections.ts";
 
-const DB_PATH = process.env.DB_PATH ?? "data/grocery.db";
 mkdirSync(dirname(DB_PATH), { recursive: true });
 
 export const db = new DatabaseSync(DB_PATH);

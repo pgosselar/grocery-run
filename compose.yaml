@@ -8,5 +8,15 @@ services:
     env_file: .env
     ports:
       - "3001:3001"
+    environment:
+      BACKUP_MIRROR_DIR: /nas-backups
     volumes:
       - ./data:/data
+      # A second copy of each nightly backup, on the NAS (10.0.101.10, automounted at /data/apollo).
+      - /data/apollo/grocery-run-backups:/nas-backups
+    # Shows the container as unhealthy (in Portainer / docker ps) if nightly backups stop working.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3001/api/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 5m
+      timeout: 10s
+      start_period: 1m

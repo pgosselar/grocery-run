@@ -3,7 +3,8 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { WebSocketServer, WebSocket } from "ws";
-import { applyOps, history, memberIds, removeMember, roleOf, snapshot, version } from "./db.ts";
+import { applyOps, db, history, memberIds, removeMember, roleOf, snapshot, version } from "./db.ts";
+import { backupHealth, startBackups } from "./backup.ts";
 import {
   currentUser, forgotPassword, resetPassword, googleCallback, googleStart, login, logout, me, requireAuth, signup, updateAccount, userFrom,
 } from "./auth.ts";
@@ -21,6 +22,11 @@ app.use(express.json({ limit: "1mb" }));
 
 // ---------- accounts ----------
 
+// For Docker's health check: fails when backups have stopped working, so the container shows as unhealthy.
+app.get("/api/health", (_req, res) => {
+  const health = backupHealth();
+  res.status(health.ok ? 200 : 503).json(health);
+});
 app.get("/api/me", me);
 app.post("/api/auth/signup", signup);
 app.post("/api/auth/login", login);
@@ -178,3 +184,4 @@ setInterval(() => {
 }, 25_000).unref();
 
 server.listen(PORT, () => console.log(`grocery-run server on http://localhost:${PORT}`));
+startBackups(db);

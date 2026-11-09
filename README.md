@@ -49,7 +49,7 @@ docker compose up -d --build     # first run and after every code change
 docker compose logs -f           # logs
 ```
 
-Settings and secrets live in `.env`, which is gitignored. The database is in `./data/grocery.db`, so back up that folder.
+Settings and secrets live in `.env`, which is gitignored. The database is in `./data/grocery.db`, and the app backs it up every night (see [Backups](#backups)).
 
 **First run:** the first person to open the app creates the first account, so do that yourself right after deploying. Then share a list with each family member.
 
@@ -61,6 +61,29 @@ There's no email verification. Without Resend configured, reset a forgotten pass
 docker compose exec grocery-run node server/cli.ts users
 docker compose exec grocery-run node server/cli.ts reset-password someone@example.com   # prints a temporary password
 ```
+
+### Backups
+
+The server copies the database to `data/backups/` when it starts and once a day after that. It uses SQLite's backup feature, so the copy is consistent even while the app is busy. Each copy is checked before it's kept. It keeps the 14 newest, plus the newest of each week for 8 weeks; at about 200 KB each, that's a few MB in all.
+
+**A second copy on another machine:** a backup on the same disk won't survive that disk. Set `BACKUP_MIRROR_DIR` to a folder mounted into the container, such as a NAS share, and every backup is copied there too. The folder must contain a file named `.grocery-run-backups` (its contents don't matter). That way an unmounted share is reported, instead of the copies silently landing in its empty mount point on this disk. Here, `compose.yaml` mounts `/data/apollo/grocery-run-backups` on the NAS.
+
+**Is it working?** `GET /api/health` fails when the last backup failed, the second copy failed, or the newest backup is more than 30 hours old. Docker's health check uses it, so the container shows as **unhealthy** in `docker ps` and Portainer.
+
+```sh
+docker compose exec grocery-run node server/cli.ts backups   # list them, with a health report
+docker compose exec grocery-run node server/cli.ts backup    # back up now, e.g. before something risky
+```
+
+**Restore** with the app stopped. The database being replaced is saved first as `pre-restore-<time>.db`, so a restore can be undone the same way.
+
+```sh
+docker compose stop
+docker compose run --rm grocery-run node server/cli.ts restore grocery-2026-11-08.db
+docker compose start
+```
+
+Phones reload the restored lists when they reconnect, and changes a phone made offline are sent again on top. Accounts and sign-ins created after the backup are gone, so those people sign in or sign up again.
 
 ### Password reset emails (optional)
 
@@ -88,7 +111,9 @@ Add a Proxy Host with these settings:
 | Env var | Default | |
 |---|---|---|
 | `PORT` | `3001` | |
-| `DB_PATH` | `data/grocery.db` | SQLite file. Back this up. |
+| `DB_PATH` | `data/grocery.db` | SQLite file |
+| `BACKUP_DIR` | `data/backups` | Nightly backups |
+| `BACKUP_MIRROR_DIR` | *(unset)* | A second folder for each backup, ideally another machine's |
 | `PUBLIC_URL` | from request | Public address, used in invite, reset, and Google links |
 | `SESSION_SECRET` | stored in DB | Signs the Google sign-in handshake |
 | `SIGNUPS` | `invite` | `open` lets anyone create an account without an invite |
