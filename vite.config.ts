@@ -12,7 +12,7 @@ export default defineConfig({
     VitePWA({
       // The app decides when to switch versions (src/lib/update.ts), so nobody loses what they were typing.
       registerType: "prompt",
-      includeAssets: ["icon.svg", "apple-touch-icon.png"],
+      includeAssets: ["icon.svg", "apple-touch-icon.png", "icon-maskable-512.png"],
       manifest: {
         name: "Lane Nine",
         short_name: "Lane Nine",
@@ -24,7 +24,7 @@ export default defineConfig({
         icons: [
           { src: "icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "icon-512.png", sizes: "512x512", type: "image/png" },
-          { src: "icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+          { src: "icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
       },
       workbox: {

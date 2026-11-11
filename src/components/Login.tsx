@@ -1,5 +1,4 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ShoppingBasket } from "lucide-react";
 import type { AuthInfo, InvitePreview, User } from "../../shared/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,9 +91,7 @@ export function Login({
             </>
           ) : preview ? (
             <>
-              <div className="bg-primary text-primary-foreground mb-4 flex size-20 items-center justify-center rounded-[1.4rem] shadow-lg">
-                <ShoppingBasket className="size-10" />
-              </div>
+              <img src="/icon.svg" alt="" className="mb-4 size-20 rounded-[1.4rem] shadow-lg" />
               <h1 className="text-2xl font-bold tracking-tight">Welcome to Lane Nine</h1>
               <p className="mt-1 text-muted-foreground">
                 {preview.invitedBy} invited you{preview.name ? `, ${preview.name.split(/\s+/)[0]}` : ""}. Make an account to start your own lists.
@@ -102,9 +99,7 @@ export function Login({
             </>
           ) : (
             <>
-              <div className="bg-primary text-primary-foreground mb-4 flex size-20 items-center justify-center rounded-[1.4rem] shadow-lg">
-                <ShoppingBasket className="size-10" />
-              </div>
+              <img src="/icon.svg" alt="" className="mb-4 size-20 rounded-[1.4rem] shadow-lg" />
               <h1 className="text-3xl font-bold tracking-tight">Lane Nine</h1>
               <p className="mt-1 text-muted-foreground">
                 {info.firstRun ? "Create the first account to get started." : "Family grocery lists and recipes"}

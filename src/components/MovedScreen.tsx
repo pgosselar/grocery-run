@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Loader2, Share, ShoppingBasket } from "lucide-react";
+import { Loader2, Share } from "lucide-react";
 import type { AuthInfo } from "../../shared/types";
 import { useStore } from "@/lib/store";
 
@@ -35,9 +35,7 @@ export function MovedScreen({ to }: { to: URL }) {
   return (
     <div className="pt-safe pb-safe flex min-h-dvh items-center justify-center px-6 py-10">
       <div className="w-full max-w-sm space-y-6 text-center">
-        <div className="bg-primary text-primary-foreground mx-auto flex size-20 items-center justify-center rounded-[1.4rem] shadow-lg">
-          <ShoppingBasket className="size-10" />
-        </div>
+        <img src="/icon.svg" alt="" className="mx-auto size-20 rounded-[1.4rem] shadow-lg" />
         <div className="space-y-2">
           <h1 className="text-2xl font-bold tracking-tight">Grocery Run is now Lane Nine</h1>
           <p className="text-muted-foreground">Same lists, same recipes, new name and address: {to.host}</p>

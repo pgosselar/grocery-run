@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, ShoppingBasket, Unlink } from "lucide-react";
+import { Loader2, Unlink } from "lucide-react";
 import type { InvitePreview } from "../../shared/types";
 import { Button } from "@/components/ui/button";
 import { acceptInvite, previewInvite } from "@/lib/store";
@@ -39,9 +39,7 @@ export function InviteScreen({ token }: { token: string }) {
           <Loader2 className="mx-auto size-8 animate-spin text-muted-foreground" />
         ) : !preview.listName ? (
           <>
-            <div className="bg-primary text-primary-foreground mx-auto flex size-20 items-center justify-center rounded-[1.4rem] shadow-lg">
-              <ShoppingBasket className="size-10" />
-            </div>
+            <img src="/icon.svg" alt="" className="mx-auto size-20 rounded-[1.4rem] shadow-lg" />
             <div>
               <h1 className="text-2xl font-bold tracking-tight">You're already in</h1>
               <p className="mt-1 text-muted-foreground">
