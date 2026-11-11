@@ -55,6 +55,16 @@ Settings and secrets live in `.env`, which is gitignored. The database is in `./
 
 **First run:** the first person to open the app creates the first account, so do that yourself right after deploying. Then share a list with each family member.
 
+### Prices & receipts (beta)
+
+Off unless someone turns it on under **Account → Prices & receipts**, per person. With it on, a list:
+
+- shows **≈ what's left will cost** under its name, from each item's last price times its quantity (groceries only, no tax);
+- puts the store's own products first in **suggestions** as you type, most-bought first, with prices;
+- has **Scan Receipt** in its ··· menu. Claude reads the photo (up to 4 for a long receipt), folds coupons into their items, handles things sold by weight, and matches each line to what was on the list for that trip, so `FAIRLIFE 2% CHOC MLK` becomes "Fairlife 2% Chocolate Milk" and remembers that you call it "chocolate milk". You check the reading and save; anything confirmed (receipt text, Costco item numbers, your own names) matches automatically next time.
+
+Item details get a **Price** field and recent prices. Receipt photos are deleted after 7 days; the readings stay, so a receipt can be fixed or deleted later (deleting one removes the prices it brought in). Every list quietly records what gets checked off whether or not anyone has prices on, so suggestions already know the family's habits when someone turns them on. Needs `ANTHROPIC_API_KEY` for receipts; typed prices and the estimate work without it.
+
 ### Admin screen
 
 The first account made on the server is the admin (or set `ADMIN_EMAILS`). Open it from **Account → Admin**. It shows:

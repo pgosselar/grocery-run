@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import type {
   AuthInfo, GroceryList, HistoryEntry, InvitePreview, Item, ListColor, ListSection, Member, Op, RecipeImport,
-  ServerMessage, Snapshot, User,
+  ServerMessage, Snapshot, User, UserPrefs,
 } from "../../shared/types";
 import {
   OTHER, categorize, defaultSections, learnSection, parseQuantity, resolveSection, sectionName, sectionWithWord, unlearnSection,
@@ -613,7 +613,7 @@ export async function signOut() {
   setState({ user: null });
 }
 
-export async function updateAccount(patch: { name?: string; currentPassword?: string; newPassword?: string }) {
+export async function updateAccount(patch: { name?: string; currentPassword?: string; newPassword?: string; prefs?: UserPrefs }) {
   const { user } = await api<{ user: User }>("PATCH", "/api/account", patch);
   saveStorage(USER_KEY, user);
   setState({ user });

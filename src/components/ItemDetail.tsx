@@ -7,6 +7,9 @@ import { deleteItem, getState, sortedLists, updateItem, useStore } from "@/lib/s
 import { categorize, resolveSection } from "@/lib/sections";
 import { Toggle } from "./ListEditor";
 import { Provenance } from "./Provenance";
+import type { PricePoint, PriceUnit } from "../../shared/types";
+import { money, priceHistory, productIndex, setItemPrice, unitLabel, useCatalog, usePricesOn } from "@/lib/products";
+import { showToast } from "@/lib/toast";
 
 export function ItemDetail({ itemId, onClose, color }: { itemId: string | null; onClose: () => void; color: string }) {
   const state = useStore();
@@ -17,6 +20,12 @@ export function ItemDetail({ itemId, onClose, color }: { itemId: string | null; 
   const [section, setSection] = useState("Other");
   const [flagged, setFlagged] = useState(false);
   const [listId, setListId] = useState("");
+  const [price, setPrice] = useState("");
+  const [unit, setUnit] = useState<PriceUnit>("each");
+  const [history, setHistory] = useState<PricePoint[]>([]);
+  const pricesOn = usePricesOn();
+  const catalog = useCatalog(item?.listId ?? "", pricesOn && !!item);
+  const product = item && pricesOn ? productIndex(catalog)(item.title) : undefined;
 
   useEffect(() => {
     if (!itemId) return;
@@ -28,7 +37,18 @@ export function ItemDetail({ itemId, onClose, color }: { itemId: string | null; 
     setSection(resolveSection(getState().lists[it.listId]?.sections ?? [], it.section));
     setFlagged(it.flagged);
     setListId(it.listId);
+    setHistory([]);
   }, [itemId]);
+
+  // The price fields follow the product's price, and its history loads alongside.
+  useEffect(() => {
+    if (!itemId || !pricesOn) return;
+    const it = getState().items[itemId];
+    if (!it) return;
+    setPrice(product?.priceCents != null ? (product.priceCents / 100).toFixed(2) : "");
+    setUnit(product?.priceUnit ?? "each");
+    priceHistory(it.listId, it.title).then(setHistory).catch(() => setHistory([]));
+  }, [itemId, pricesOn, product?.id, product?.priceCents]);
 
   // Someone else deleted it while the sheet was open
   useEffect(() => {
@@ -45,6 +65,15 @@ export function ItemDetail({ itemId, onClose, color }: { itemId: string | null; 
     const patch = { title: title.trim(), notes: notes.trim(), quantity: quantity.trim(), section, flagged, listId };
     const changed = (Object.keys(patch) as (keyof typeof patch)[]).some((k) => patch[k] !== item[k]);
     if (patch.title && changed) updateItem(item.id, patch);
+    if (pricesOn && !movedList) {
+      const typed = price.trim() ? Math.round(Number(price.replace(/[$,\s]/g, "")) * 100) : null;
+      const was = product?.priceCents ?? null;
+      if (typed !== null && Number.isFinite(typed) && typed >= 0 && (typed !== was || unit !== (product?.priceUnit ?? "each"))) {
+        setItemPrice(item.listId, patch.title || item.title, typed, unit).catch(() => showToast("Couldn't save the price"));
+      } else if (typed === null && was !== null && product?.priceSource === "manual") {
+        setItemPrice(item.listId, item.title, null).catch(() => showToast("Couldn't clear the price"));
+      }
+    }
     onClose();
   };
 
@@ -83,6 +112,40 @@ export function ItemDetail({ itemId, onClose, color }: { itemId: string | null; 
             )}
             {movedList && (
               <p className="px-4 py-2 text-xs text-muted-foreground">It'll be sorted into {list?.name}'s own sections.</p>
+            )}
+            {pricesOn && (
+              <Row label="Price">
+                <span className="flex items-center gap-1 text-muted-foreground">
+                  $
+                  <input
+                    value={price}
+                    inputMode="decimal"
+                    onChange={(e) => setPrice(e.target.value)}
+                    placeholder="—"
+                    aria-label="Price"
+                    className="w-16 bg-transparent text-right outline-none"
+                  />
+                  <select value={unit} onChange={(e) => setUnit(e.target.value as PriceUnit)} aria-label="Price per" className="bg-transparent outline-none">
+                    <option value="each">each</option>
+                    <option value="lb">/lb</option>
+                    <option value="kg">/kg</option>
+                    <option value="oz">/oz</option>
+                  </select>
+                </span>
+              </Row>
+            )}
+            {pricesOn && history.length > 0 && (
+              <div className="space-y-0.5 px-4 py-2 text-xs text-muted-foreground">
+                {history.slice(0, 4).map((h, n) => (
+                  <div key={n} className="flex justify-between gap-3">
+                    <span className="truncate">
+                      {h.source === "receipt" ? `Paid at ${h.store ?? list?.name}` : "Typed in"} ·{" "}
+                      {new Date(h.at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                    </span>
+                    <span className="tabular-nums">{money(h.priceCents)}{unitLabel(h.unit)}</span>
+                  </div>
+                ))}
+              </div>
             )}
             <Row label="List">
               <select value={listId} onChange={(e) => setListId(e.target.value)} className="max-w-48 bg-transparent text-right text-muted-foreground outline-none">

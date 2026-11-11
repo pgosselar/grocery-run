@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
-import type { InvitePreview, User } from "../shared/types.ts";
+import type { InvitePreview, User, UserPrefs } from "../shared/types.ts";
 import { addMember, db, listById, roleOf, tx } from "./db.ts";
 
 const scryptAsync = promisify(scrypt) as (pw: string, salt: Buffer, len: number, opts: object) => Promise<Buffer>;
@@ -14,10 +14,22 @@ interface UserRow {
   google_sub: string | null;
   created_at: number;
   invited_by: string | null;
+  prefs: string | null;
+}
+
+function parsePrefs(raw: string | null): UserPrefs {
+  try {
+    const p = raw ? JSON.parse(raw) : {};
+    return { prices: p.prices === true };
+  } catch {
+    return {};
+  }
 }
 
 export function publicUser(u: UserRow): User {
-  const user: User = { id: u.id, name: u.name, email: u.email, hasPassword: !!u.password_hash, hasGoogle: !!u.google_sub };
+  const user: User = {
+    id: u.id, name: u.name, email: u.email, hasPassword: !!u.password_hash, hasGoogle: !!u.google_sub, prefs: parsePrefs(u.prefs),
+  };
   if (isAdmin(u)) user.admin = true;
   return user;
 }
@@ -62,6 +74,7 @@ const insertUser = db.prepare(
   "INSERT INTO users(id, email, name, password_hash, google_sub, created_at, invited_by) VALUES(?, ?, ?, ?, ?, ?, ?)",
 );
 const setName = db.prepare("UPDATE users SET name = ? WHERE id = ?");
+const setPrefs = db.prepare("UPDATE users SET prefs = ? WHERE id = ?");
 const setPasswordHash = db.prepare("UPDATE users SET password_hash = ? WHERE id = ?");
 const setGoogle = db.prepare("UPDATE users SET google_sub = ? WHERE id = ?");
 const allUsers = db.prepare("SELECT * FROM users ORDER BY created_at");
@@ -113,6 +126,13 @@ export function signUpWith(
     if (invite) claimAppInvite.run(user.id, Date.now(), invite, Date.now());
     return user;
   });
+}
+
+export function updatePrefs(id: string, patch: UserPrefs) {
+  const cur = parsePrefs((byId.get(id) as UserRow | undefined)?.prefs ?? null);
+  const next: UserPrefs = { ...cur };
+  if (typeof patch.prices === "boolean") next.prices = patch.prices;
+  setPrefs.run(JSON.stringify(next), id);
 }
 
 export function renameUser(id: string, name: string) {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, LogOut, ShieldCheck, SquarePlus } from "lucide-react";
+import { ChevronRight, LogOut, Receipt, ShieldCheck, SquarePlus } from "lucide-react";
+import { Toggle } from "./ListEditor";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,6 +78,20 @@ export function AccountSheet({ open, onClose }: { open: boolean; onClose: () => 
         </div>
 
         {user.hasGoogle && <p className="px-1 text-sm text-muted-foreground">Google sign-in is connected.</p>}
+
+        <div className="flex items-center gap-3 rounded-xl bg-card px-4 py-3 shadow-sm">
+          <Receipt className="text-primary size-5 shrink-0" />
+          <span className="flex-1">
+            <span className="block font-medium">Prices & receipts <span className="text-xs font-normal text-muted-foreground">(beta)</span></span>
+            <span className="block text-xs text-muted-foreground">
+              Scan receipts to learn prices, see what each trip will cost, and get suggestions from what you buy at each store.
+            </span>
+          </span>
+          <Toggle
+            checked={user.prefs?.prices === true}
+            onChange={(on) => updateAccount({ prefs: { prices: on } }).catch((e: Error) => setError(e.message))}
+          />
+        </div>
 
         {homeScreenPlatform() && !isStandalone() && (
           <button

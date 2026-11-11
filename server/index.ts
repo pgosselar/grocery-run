@@ -15,6 +15,9 @@ import {
   tagRecipe, untagRecipe,
 } from "./recipes.ts";
 import { emailReset, inviteSomeone, overview, requireAdmin, revokeInvite, signOutEverywhere, tempPassword } from "./admin.ts";
+import {
+  confirmReceipt, deleteReceipt, getCatalog, getPriceHistory, getReceipt, getReceiptPhoto, listReceipts, scanReceipt, setPrice,
+} from "./products.ts";
 import type { Op, ServerMessage } from "../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -23,6 +26,7 @@ app.set("trust proxy", true);
 // Recipe photos are the only big uploads (already shrunk on the phone); everything else stays small.
 app.use("/api/recipe/photo", express.json({ limit: "16mb" }));
 app.use("/api/recipes/:id/photo", express.json({ limit: "8mb" }));
+app.use("/api/lists/:id/receipts", express.json({ limit: "24mb" }));
 app.use(express.json({ limit: "1mb" }));
 
 // The app's one true address (it used to live at gr.homelab.gosselar.com). Someone opening a page at any
@@ -152,6 +156,18 @@ app.post("/api/invites/:token/accept", requireAuth, (req, res) => {
   if (!listId) return res.status(404).json({ error: "This invite link has expired or been reset. Ask for a new one." });
   res.json({ listId });
 });
+
+// ---------- prices & receipts ----------
+
+app.get("/api/lists/:id/products", requireAuth, getCatalog);
+app.put("/api/lists/:id/prices", requireAuth, setPrice);
+app.get("/api/lists/:id/prices", requireAuth, getPriceHistory);
+app.get("/api/lists/:id/receipts", requireAuth, listReceipts);
+app.post("/api/lists/:id/receipts", requireAuth, scanReceipt);
+app.get("/api/receipts/:id", requireAuth, getReceipt);
+app.get("/api/receipts/:id/photos/:n", requireAuth, getReceiptPhoto);
+app.post("/api/receipts/:id/confirm", requireAuth, confirmReceipt);
+app.delete("/api/receipts/:id", requireAuth, deleteReceipt);
 
 // ---------- admin ----------
 

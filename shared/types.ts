@@ -31,6 +31,12 @@ export interface User {
   hasGoogle: boolean;
   /** Can open the admin screen */
   admin?: boolean;
+  prefs: UserPrefs;
+}
+
+export interface UserPrefs {
+  /** Prices, trip estimates and receipt scanning (beta, off unless turned on) */
+  prices?: boolean;
 }
 
 export interface Member {
@@ -119,6 +125,86 @@ export interface HistoryEntry {
   completedBy: string;
   completedById?: string;
   completedAt: number;
+}
+
+// ---------- prices & receipts ----------
+
+export type PriceUnit = "each" | "lb" | "kg" | "oz";
+
+/** Something bought from one list's store, as that list knows it. */
+export interface Product {
+  id: string;
+  name: string;
+  /** Normalized names that mean this product: its own name and names typed on the list */
+  keys: string[];
+  priceCents: number | null;
+  priceUnit: PriceUnit | null;
+  /** What the whole line cost last time (for things sold by weight) */
+  paidCents: number | null;
+  priceAt: number | null;
+  priceSource: "receipt" | "manual" | null;
+  timesBought: number;
+  lastBoughtAt: number | null;
+}
+
+export interface PricePoint {
+  priceCents: number;
+  unit: PriceUnit;
+  paidCents: number | null;
+  at: number;
+  source: "receipt" | "manual";
+  store: string | null;
+}
+
+export type ReceiptLineStatus = "known" | "high" | "low" | "new";
+
+export interface ReceiptLine {
+  i: number;
+  text: string;
+  code: string;
+  quantity: number;
+  weight: number | null;
+  weightUnit: PriceUnit | null;
+  unitPriceCents: number;
+  totalCents: number;
+  discountCents: number;
+  /** The product name to save it under (editable on review) */
+  name: string;
+  productId: string | null;
+  /** How it was on the list, if it matched something there ("chocolate milk") */
+  itemTitle: string | null;
+  status: ReceiptLineStatus;
+  skip?: boolean;
+}
+
+export interface Receipt {
+  id: string;
+  listId: string;
+  store: string;
+  purchasedAt: number | null;
+  subtotalCents: number | null;
+  totalCents: number | null;
+  status: "review" | "saved";
+  lines: ReceiptLine[];
+  /** Fees, deposits and anything else that isn't a grocery */
+  other: { text: string; totalCents: number }[];
+  photos: number;
+  uploadedBy: string;
+  createdAt: number;
+  /** An already-saved receipt from the same store, time and total: probably this one again */
+  duplicateOf?: string | null;
+}
+
+export interface ReceiptSummary {
+  id: string;
+  store: string;
+  purchasedAt: number | null;
+  totalCents: number | null;
+  status: "review" | "saved";
+  items: number;
+  photos: number;
+  uploadedBy: string;
+  createdAt: number;
 }
 
 /** One cleaned-up ingredient, ready to become a grocery item. */

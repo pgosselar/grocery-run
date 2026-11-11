@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BookOpen, ChefHat, ChevronLeft, Ellipsis, Eye, EyeOff, History, Info, LayoutList, ListOrdered, Plus, Rows3, Trash2, UserPlus, Users,
+  BookOpen, ChefHat, ChevronLeft, Ellipsis, Eye, EyeOff, History, Info, LayoutList, ListOrdered, Plus, Receipt, Rows3, Trash2, UserPlus,
+  Users,
 } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -22,6 +23,8 @@ import { SyncBadge } from "./SyncBadge";
 import { ShareSheet } from "./ShareSheet";
 import { SectionsSheet } from "./SectionsSheet";
 import { MoveSheet } from "./MoveSheet";
+import { ReceiptSheet } from "./ReceiptSheet";
+import { estimate, itemCost, money, priceLabel, productIndex, useCatalog, usePricesOn } from "@/lib/products";
 
 const LINGER_MS = 1600;
 
@@ -30,6 +33,10 @@ export function ListScreen({ id }: { id: string }) {
   const list = state.lists[id];
   const items = useMemo(() => listItems(state, id), [state.items, id]);
   const history = useMemo(() => itemHistory(state), [state.items]);
+  const pricesOn = usePricesOn();
+  const catalog = useCatalog(id, pricesOn);
+  const findProduct = useMemo(() => productIndex(catalog), [catalog]);
+  const [receiptOpen, setReceiptOpen] = useState(false);
 
   const showKey = `gr.showCompleted.${id}`;
   const [showCompleted, setShowCompletedRaw] = useState(() => safeStorage(showKey, false));
@@ -96,6 +103,12 @@ export function ListScreen({ id }: { id: string }) {
   };
 
   const openTitles = new Set(items.filter((i) => !i.completed).map((i) => i.title.toLowerCase()));
+  const trip = pricesOn ? estimate(items, findProduct) : null;
+  // With prices on, this store's products (most bought first) lead the suggestions, then everything else.
+  // A name typed earlier that a receipt has since tied to a product shows as that product.
+  const suggestions = (pricesOn ? [...catalog.map((p) => p.name), ...history.filter((t) => !findProduct(t))] : history).filter(
+    (t, n, all) => !openTitles.has(t.toLowerCase()) && all.findIndex((x) => x.toLowerCase() === t.toLowerCase()) === n,
+  );
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-2xl flex-col">
@@ -145,6 +158,11 @@ export function ListScreen({ id }: { id: string }) {
                 <DropdownMenuItem onSelect={() => setHistoryFor(null)}>
                   Recently Completed <History />
                 </DropdownMenuItem>
+                {pricesOn && (
+                  <DropdownMenuItem onSelect={() => setReceiptOpen(true)}>
+                    Scan Receipt <Receipt />
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => setShowCompleted(!showCompleted)}>
                   {showCompleted ? "Hide Completed" : "Show Completed"}
@@ -163,6 +181,14 @@ export function ListScreen({ id }: { id: string }) {
         <h1 className="px-1 text-[34px] leading-tight font-bold tracking-tight" style={{ color }}>
           {list.name}
         </h1>
+        {trip && trip.total > 0 && (
+          <div className="px-1 pt-0.5 text-[15px]">
+            <span className="font-semibold tabular-nums">≈ {money(trip.total)}</span>
+            <span className="text-muted-foreground">
+              {" "}for what's left{trip.missing > 0 ? ` · ${trip.missing} without a price` : ""}
+            </span>
+          </div>
+        )}
         <div className="flex items-center justify-between px-1 pt-0.5 pb-3 text-sm text-muted-foreground">
           <span>{openCount === 0 ? "Nothing to get" : `${openCount} to get`}</span>
           <span className="flex items-center gap-3">
@@ -210,6 +236,7 @@ export function ListScreen({ id }: { id: string }) {
                         onInfo={() => setDetailId(item.id)}
                         onMove={() => setMoveId(item.id)}
                         onEnter={() => setAdding(true)}
+                        price={pricesOn && !item.completed ? priceText(item, findProduct(item.title)) : null}
                       />
                     ))}
                   </div>
@@ -223,7 +250,8 @@ export function ListScreen({ id }: { id: string }) {
           active={adding}
           setActive={setAdding}
           color={color}
-          suggestions={history.filter((t) => !openTitles.has(t.toLowerCase()))}
+          suggestions={suggestions}
+          priceOf={pricesOn ? (t) => { const p = findProduct(t); return p ? priceLabel(p) : null; } : undefined}
           onAdd={(title) => addItem(id, title)}
           onImport={() => setImportOpen(true)}
         />
@@ -238,9 +266,16 @@ export function ListScreen({ id }: { id: string }) {
       <ShareSheet list={list} open={shareOpen} onClose={() => setShareOpen(false)} color={color} />
       <SectionsSheet list={list} open={sectionsOpen} onClose={() => setSectionsOpen(false)} color={color} />
       <RecipeImportSheet open={importOpen} onClose={() => setImportOpen(false)} listId={id} />
+      {pricesOn && <ReceiptSheet listId={id} open={receiptOpen} onClose={() => setReceiptOpen(false)} color={color} />}
       <HistorySheet listId={id} section={historyFor} onClose={() => setHistoryFor(undefined)} color={color} />
     </div>
   );
+}
+
+/** "$4.29", or "$8.58" for two of them */
+function priceText(item: Item, p: ReturnType<ReturnType<typeof productIndex>>) {
+  const c = itemCost(item, p);
+  return c == null ? null : money(c);
 }
 
 function sortItems(items: Item[]) {
@@ -252,9 +287,11 @@ function NewItemRow({
   setActive,
   color,
   suggestions,
+  priceOf,
   onAdd,
   onImport,
 }: {
+  priceOf?: (title: string) => string | null;
   onImport: () => void;
   active: boolean;
   setActive: (v: boolean) => void;
@@ -349,6 +386,7 @@ function NewItemRow({
               className="shrink-0 rounded-full border bg-card px-3.5 py-1.5 text-sm"
             >
               <span style={{ color }}>+</span> {s}
+              {priceOf?.(s) && <span className="ml-1 text-muted-foreground">{priceOf(s)}</span>}
             </button>
           ))}
         </div>

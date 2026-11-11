@@ -112,6 +112,61 @@ db.exec(`
     added_by TEXT NOT NULL,
     added_at INTEGER NOT NULL
   );
+  -- Prices & receipts: each list (one store) learns the products bought there, under names a person
+  -- would recognize, and what they cost. Aliases tie receipt text, store item numbers and the names
+  -- people type ("chocolate milk") to a product.
+  CREATE TABLE IF NOT EXISTS products (
+    id TEXT PRIMARY KEY,
+    list_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    name_key TEXT NOT NULL,
+    price_cents INTEGER,
+    price_unit TEXT,
+    paid_cents INTEGER,
+    price_at INTEGER,
+    price_source TEXT,
+    times_bought INTEGER NOT NULL DEFAULT 0,
+    last_bought_at INTEGER,
+    created_at INTEGER NOT NULL,
+    UNIQUE (list_id, name_key)
+  );
+  CREATE TABLE IF NOT EXISTS product_aliases (
+    list_id TEXT NOT NULL,
+    alias TEXT NOT NULL,
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    PRIMARY KEY (list_id, alias)
+  );
+  CREATE TABLE IF NOT EXISTS prices (
+    product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+    price_cents INTEGER NOT NULL,
+    unit TEXT NOT NULL,
+    paid_cents INTEGER,
+    observed_at INTEGER NOT NULL,
+    receipt_id TEXT,
+    source TEXT NOT NULL,
+    added_by TEXT
+  );
+  CREATE INDEX IF NOT EXISTS prices_product ON prices(product_id, observed_at DESC);
+  CREATE TABLE IF NOT EXISTS receipts (
+    id TEXT PRIMARY KEY,
+    list_id TEXT NOT NULL,
+    store TEXT NOT NULL DEFAULT '',
+    purchased_at INTEGER,
+    total_cents INTEGER,
+    status TEXT NOT NULL,
+    data TEXT NOT NULL,
+    uploaded_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS receipts_list ON receipts(list_id, created_at DESC);
+  -- Kept a week, so a reading can be checked against the photo, then deleted.
+  CREATE TABLE IF NOT EXISTS receipt_photos (
+    receipt_id TEXT NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
+    n INTEGER NOT NULL,
+    jpeg BLOB NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (receipt_id, n)
+  );
   CREATE VIRTUAL TABLE IF NOT EXISTS recipes_fts USING fts5(
     id UNINDEXED, title, ingredients, body, tokenize = "porter unicode61 remove_diacritics 2"
   );
@@ -120,6 +175,9 @@ db.exec(`
 // Columns added after the first release.
 if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'invited_by'").get()) {
   db.exec("ALTER TABLE users ADD COLUMN invited_by TEXT");
+}
+if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'prefs'").get()) {
+  db.exec("ALTER TABLE users ADD COLUMN prefs TEXT");
 }
 
 export function tx<T>(fn: () => T): T {
@@ -246,6 +304,9 @@ const deleteList = db.prepare(`
 `);
 const deleteListItems = db.prepare("UPDATE items SET deleted = 1, updated_at = ? WHERE list_id = ?");
 const untagRecipes = db.prepare("DELETE FROM recipe_lists WHERE list_id = ?");
+const deleteListProducts = db.prepare("DELETE FROM products WHERE list_id = ?");
+const deleteListAliases = db.prepare("DELETE FROM product_aliases WHERE list_id = ?");
+const deleteListReceipts = db.prepare("DELETE FROM receipts WHERE list_id = ?");
 const deleteListInvites = db.prepare("DELETE FROM invites WHERE list_id = ?");
 const upsertItem = db.prepare(`
   INSERT INTO items(id, list_id, data, updated_at) VALUES(?, ?, ?, ?)
@@ -280,12 +341,21 @@ function logCompletion(item: Item) {
   insertCompletion.run(item.id, item.listId, item.section, at, JSON.stringify(entry));
 }
 
+const checkOffListeners: ((item: Item, checked: boolean) => void)[] = [];
+/** Told whenever an item is checked off (or un-checked), inside the same transaction. */
+export function onCheckOff(fn: (item: Item, checked: boolean) => void) {
+  checkOffListeners.push(fn);
+}
+
 /** Keep the check-off log in step with an item change that was just applied. */
 function trackCompletion(prev: Item | null, next: Item) {
-  if (next.completed && !prev?.completed) logCompletion(next);
-  else if (!next.completed && prev?.completed && prev.completedAt) {
+  if (next.completed && !prev?.completed) {
+    logCompletion(next);
+    checkOffListeners.forEach((fn) => fn(next, true));
+  } else if (!next.completed && prev?.completed && prev.completedAt) {
     // Unchecked (often a mis-tap): drop that check-off from history.
     removeCompletion.run(prev.id, prev.completedAt);
+    checkOffListeners.forEach((fn) => fn(prev, false));
   }
 }
 
@@ -332,6 +402,9 @@ export function applyOps(actor: Actor, ops: Op[]): { deliveries: Delivery[]; rej
           deleteMembers.run(op.id);
           deleteListInvites.run(op.id);
           untagRecipes.run(op.id);
+          deleteListAliases.run(op.id);
+          deleteListProducts.run(op.id);
+          deleteListReceipts.run(op.id);
           deliveries.push({ op, userIds: audience });
           break;
         }

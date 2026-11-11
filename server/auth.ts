@@ -8,7 +8,7 @@ import { emailEnabled, escapeHtml, sendEmail } from "./mail.ts";
 import {
   MIN_PASSWORD, SESSION_MAX_AGE, acceptInvite, checkPassword, createSession, endSession, hashPassword,
   linkGoogle, normalizeEmail, publicUser, sessionLookup, setPassword, signupAllowed, userByEmail, userByGoogle,
-  userById, renameUser, endAllSessions, clearPassword, userCount, createResetToken, consumeResetToken, signUpWith,
+  userById, renameUser, updatePrefs, endAllSessions, clearPassword, userCount, createResetToken, consumeResetToken, signUpWith,
 } from "./users.ts";
 
 const COOKIE = "gr_sid";
@@ -152,7 +152,8 @@ export function logout(req: Request, res: Response) {
 
 export async function updateAccount(req: Request, res: Response) {
   const user = currentUser(res);
-  const { name, currentPassword, newPassword } = (req.body ?? {}) as Record<string, unknown>;
+  const { name, currentPassword, newPassword, prefs } = (req.body ?? {}) as Record<string, unknown>;
+  if (prefs && typeof prefs === "object") updatePrefs(user.id, prefs as Record<string, unknown>);
   if (typeof name === "string") {
     if (!name.trim()) return res.status(400).json({ error: "Enter your name" });
     renameUser(user.id, name);

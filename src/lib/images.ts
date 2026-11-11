@@ -53,6 +53,16 @@ export async function prepareImage(file: File): Promise<PreparedImage> {
   return { data: await encode(img, RECIPE_EDGE, 0.85), mediaType: "image/jpeg", preview };
 }
 
+/** Receipts are long and their print is small: keep more pixels than a recipe page. */
+const RECEIPT_EDGE = 2048;
+
+/** A photo of a receipt, for reading. */
+export async function prepareReceiptPhoto(file: File): Promise<PreparedImage> {
+  const preview = URL.createObjectURL(file);
+  const img = await load(preview);
+  return { data: await encode(img, RECEIPT_EDGE, 0.85), mediaType: "image/jpeg", preview };
+}
+
 /** A photo of the finished dish: one to show on the recipe, and a small one for the recipe box. */
 export async function prepareDishPhoto(file: File): Promise<{ full: string; thumb: string }> {
   const src = URL.createObjectURL(file);

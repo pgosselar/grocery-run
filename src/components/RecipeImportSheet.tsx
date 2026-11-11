@@ -492,13 +492,15 @@ export function RecipeImportSheet({
  * Two ways in: the camera straight away, or photos already taken. `capture` makes iPhones open the camera
  * instead of asking where the photo should come from.
  */
-function PhotoButtons({
+export function PhotoButtons({
   first,
   busy,
   preparing,
   color,
   onFiles,
+  nextLabel = "Next page",
 }: {
+  nextLabel?: string;
   first: boolean;
   busy: boolean;
   preparing: boolean;
@@ -529,7 +531,7 @@ function PhotoButtons({
     <div className={cn("grid gap-2", first ? "col-span-2 grid-cols-2" : "aspect-[3/4] grid-rows-2", busy && "pointer-events-none opacity-50")}>
       <label className={cn(tile, first && "py-8")} style={{ color }}>
         <Camera className={first ? "size-8" : "size-6"} />
-        {first ? "Take Photo" : "Next page"}
+        {first ? "Take Photo" : nextLabel}
         {input(true)}
       </label>
       <label className={cn(tile, first && "py-8")} style={{ color }}>

@@ -9,9 +9,9 @@ import { categorize } from "../../shared/sections.ts";
 
 export const claudeEnabled = Boolean(process.env.ANTHROPIC_API_KEY);
 
-const MODEL = process.env.RECIPE_MODEL || "claude-opus-5-5";
+export const MODEL = process.env.RECIPE_MODEL || "claude-opus-5-5";
 
-const client = claudeEnabled ? new Anthropic({ timeout: 60_000, maxRetries: 1 }) : null;
+export const client = claudeEnabled ? new Anthropic({ timeout: 60_000, maxRetries: 1 }) : null;
 
 /** The answer's shape; `section` must be one of this list's own section names. */
 function cleanedSchema(sectionNames: [string, ...string[]]) {

@@ -17,7 +17,10 @@ export function ItemRow({
   onInfo,
   onMove,
   onEnter,
+  price,
 }: {
+  /** Its estimated cost, when prices are on ("$4.29") */
+  price?: string | null;
   item: Item;
   color: string;
   sortable: boolean;
@@ -46,7 +49,7 @@ export function ItemRow({
 
   const longPress = useLongPress(onMove);
 
-  const meta = [item.quantity && `Qty ${item.quantity}`, item.notes].filter(Boolean).join(" · ");
+  const meta = [item.quantity && `Qty ${item.quantity}`, price, item.notes].filter(Boolean).join(" · ");
 
   return (
     <div
