@@ -50,7 +50,7 @@ export async function fetchPage(raw: string): Promise<{ html: string; finalUrl: 
         redirect: "manual",
         signal: AbortSignal.timeout(TIMEOUT_MS),
         headers: {
-          "User-Agent": "Mozilla/5.0 (compatible; GroceryRun/1.0; family recipe importer)",
+          "User-Agent": "Mozilla/5.0 (compatible; LaneNine/1.0; family recipe importer)",
           Accept: "text/html,application/xhtml+xml",
           "Accept-Language": "en-US,en;q=0.8",
         },

@@ -178,15 +178,15 @@ export async function inviteSomeone(req: Request, res: Response) {
   if (send && addr) {
     const first = invite.name.split(/\s+/)[0];
     const text =
-      `Hi ${first},\n\n${me.name} invited you to Grocery Run, our family's shared grocery lists.\n\n` +
+      `Hi ${first},\n\n${me.name} invited you to Lane Nine, our family's grocery lists and recipes.\n\n` +
       `Open this link to make your account (it works until ${dateText(invite.expiresAt)}):\n${invite.url}\n\n` +
       `On an iPhone, open it in Safari, then tap Share and Add to Home Screen to keep it handy.`;
     const html =
-      `<p>Hi ${escapeHtml(first)},</p><p>${escapeHtml(me.name)} invited you to Grocery Run, our family's shared grocery lists.</p>` +
+      `<p>Hi ${escapeHtml(first)},</p><p>${escapeHtml(me.name)} invited you to Lane Nine, our family's grocery lists and recipes.</p>` +
       `<p><a href="${escapeHtml(invite.url)}">Make my account</a> (the link works until ${dateText(invite.expiresAt)})</p>` +
       `<p>On an iPhone, open it in Safari, then tap Share and <b>Add to Home Screen</b> to keep it handy.</p>`;
     try {
-      await sendEmail(normalizeEmail(addr), `${me.name} invited you to Grocery Run`, text, html);
+      await sendEmail(normalizeEmail(addr), `${me.name} invited you to Lane Nine`, text, html);
     } catch (err) {
       console.error("Invite email failed:", err instanceof Error ? err.message : err);
       return res.json({ invite, emailError: "The invite is made, but the email didn't send. Share the link instead." });

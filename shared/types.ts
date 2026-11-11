@@ -50,6 +50,8 @@ export interface AuthInfo {
   email: boolean;
   /** Recipes can be read from photos (needs Claude) */
   recipePhotos?: boolean;
+  /** Where the app lives; an old address shows a "we've moved" screen */
+  publicUrl?: string;
 }
 
 /** What an invite link shows before you accept it. No `listName`: an invite to the app, not to a list. */

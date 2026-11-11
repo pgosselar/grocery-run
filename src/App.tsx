@@ -11,6 +11,7 @@ import { Toaster } from "@/components/Toaster";
 import { RecipesScreen } from "@/components/RecipesScreen";
 import { RecipeScreen } from "@/components/RecipeScreen";
 import { AdminScreen } from "@/components/AdminScreen";
+import { MovedScreen, movedTo } from "@/components/MovedScreen";
 
 export default function App() {
   const { user } = useStore();
@@ -40,6 +41,9 @@ export default function App() {
   }, [user, invite]);
 
   if (!info) return null;
+
+  const moved = movedTo(info);
+  if (moved) return <MovedScreen to={moved} />;
 
   if (route.name === "reset") {
     return (

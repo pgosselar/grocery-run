@@ -60,7 +60,7 @@ function check(path: string): string {
       const result = rows.map((r) => r.integrity_check).join("; ");
       if (result !== "ok") return result;
       const hasLists = copy.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'lists'").get();
-      return hasLists ? "ok" : "not a Grocery Run database";
+      return hasLists ? "ok" : "not a Lane Nine database";
     } finally {
       copy.close();
     }

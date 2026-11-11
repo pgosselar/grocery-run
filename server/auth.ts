@@ -92,6 +92,7 @@ export function me(req: Request, res: Response) {
     firstRun: userCount() === 0,
     email: emailEnabled,
     recipePhotos: claudeEnabled,
+    publicUrl: process.env.PUBLIC_URL || undefined,
   };
   res.json(info);
 }
@@ -192,7 +193,7 @@ export async function sendResetEmail(req: Request, user: { id: string; email: st
   const link = `${origin(req)}/#/reset/${createResetToken(user.id)}`;
   await sendEmail(
     user.email,
-    "Reset your Grocery Run password",
+    "Reset your Lane Nine password",
     `Hi ${user.name},\n\nTo choose a new password, open this link within an hour:\n${link}\n\nIf you didn't ask for this, ignore this email.`,
     `<p>Hi ${escapeHtml(user.name)},</p><p>To choose a new password, open this link within an hour:</p>` +
       `<p><a href="${escapeHtml(link)}">Reset my password</a></p><p>If you didn't ask for this, ignore this email.</p>`,

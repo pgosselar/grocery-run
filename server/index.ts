@@ -25,6 +25,20 @@ app.use("/api/recipe/photo", express.json({ limit: "16mb" }));
 app.use("/api/recipes/:id/photo", express.json({ limit: "8mb" }));
 app.use(express.json({ limit: "1mb" }));
 
+// The app's one true address (it used to live at gr.homelab.gosselar.com). Someone opening a page at any
+// other address is sent here, path and all; an invite's #/invite/… part rides along by itself. Only page
+// loads: the API keeps answering so an older copy of the app can finish syncing first, and the service
+// worker script mustn't redirect or installed copies would never update to the version that moves them.
+const HOME = process.env.PUBLIC_URL ? new URL(process.env.PUBLIC_URL) : null;
+app.use((req, res, next) => {
+  if (!HOME || req.method !== "GET" || req.hostname === HOME.hostname) return next();
+  if (req.path.startsWith("/api") || req.path.startsWith("/ws")) return next();
+  const mode = req.get("sec-fetch-mode");
+  const pageLoad = mode ? mode === "navigate" : !!req.accepts("html") && !/\.\w+$/.test(req.path);
+  if (!pageLoad) return next();
+  res.redirect(302, new URL(req.originalUrl, HOME).href);
+});
+
 // ---------- accounts ----------
 
 // For Docker's health check: fails when backups have stopped working, so the container shows as unhealthy.
@@ -204,5 +218,5 @@ setInterval(() => {
   for (const ws of wss.clients) ws.ping();
 }, 25_000).unref();
 
-server.listen(PORT, () => console.log(`grocery-run server on http://localhost:${PORT}`));
+server.listen(PORT, () => console.log(`Lane Nine server on http://localhost:${PORT}`));
 startBackups(db);

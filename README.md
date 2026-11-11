@@ -1,4 +1,6 @@
-# Grocery Run
+# Lane Nine
+
+*Formerly Grocery Run. The repository, Docker service, database and backup folder names keep the old name, so nothing on the server had to move.*
 
 Shared family grocery lists that work like iOS Reminders. It's an installable PWA backed by a small self-hosted Node server.
 
@@ -124,7 +126,7 @@ Add a Proxy Host with these settings:
 | `DB_PATH` | `data/grocery.db` | SQLite file |
 | `BACKUP_DIR` | `data/backups` | Nightly backups |
 | `BACKUP_MIRROR_DIR` | *(unset)* | A second folder for each backup, ideally another machine's |
-| `PUBLIC_URL` | from request | Public address, used in invite, reset, and Google links |
+| `PUBLIC_URL` | from request | The app's address (https://lanenine.app), used in invite, reset, and Google links. Page loads at any other address that reaches the server (such as the old gr.homelab.gosselar.com) are redirected here, and an old Home Screen copy shows how to move. |
 | `SESSION_SECRET` | stored in DB | Signs the Google sign-in handshake |
 | `SIGNUPS` | `invite` | `open` lets anyone create an account without an invite |
 | `RESEND_API_KEY`, `EMAIL_FROM` | *(unset)* | Password reset and invite emails |

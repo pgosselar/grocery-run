@@ -164,7 +164,7 @@ function Invites({ data, reload }: { data: AdminOverview; reload: () => Promise<
         {open && (
           <div className="space-y-3 rounded-xl bg-card p-4 shadow-sm">
             <div>
-              <h3 className="font-medium">Invite someone to Grocery Run</h3>
+              <h3 className="font-medium">Invite someone to Lane Nine</h3>
               <p className="text-sm text-muted-foreground">
                 They get their own account with no lists yet. The link works once, for 14 days. Share a list with them later if you
                 like.
@@ -243,7 +243,7 @@ function Invites({ data, reload }: { data: AdminOverview; reload: () => Promise<
 }
 
 function MadeInvite({ invite, sent, error, onClose }: { invite: AdminInvite; sent: boolean; error: string | null; onClose: () => void }) {
-  const link = useLinkActions(invite.url, "Join Grocery Run");
+  const link = useLinkActions(invite.url, "Join Lane Nine");
   return (
     <div className="space-y-2 rounded-xl bg-card p-4 shadow-sm">
       <div className="flex items-start gap-2">
@@ -275,7 +275,7 @@ function MadeInvite({ invite, sent, error, onClose }: { invite: AdminInvite; sen
 }
 
 function PendingInvite({ invite, reload }: { invite: AdminInvite; reload: () => Promise<void> }) {
-  const link = useLinkActions(invite.url, "Join Grocery Run");
+  const link = useLinkActions(invite.url, "Join Lane Nine");
   const [confirm, setConfirm] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const revoke = async () => {

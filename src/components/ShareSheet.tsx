@@ -41,7 +41,7 @@ export function ShareSheet({ list, open, onClose, color }: { list: GroceryList; 
   const shareLink = async () => {
     if (!link) return;
     try {
-      await navigator.share({ title: `Join “${list.name}” on Grocery Run`, url: link.url });
+      await navigator.share({ title: `Join “${list.name}” on Lane Nine`, url: link.url });
     } catch {
       /* cancelled */
     }

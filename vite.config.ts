@@ -14,9 +14,9 @@ export default defineConfig({
       registerType: "prompt",
       includeAssets: ["icon.svg", "apple-touch-icon.png"],
       manifest: {
-        name: "Grocery Run",
-        short_name: "Groceries",
-        description: "Shared family grocery lists",
+        name: "Lane Nine",
+        short_name: "Lane Nine",
+        description: "Family grocery lists and recipes",
         display: "standalone",
         start_url: "/",
         background_color: "#ffffff",
