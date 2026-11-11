@@ -6,9 +6,9 @@ import type { AuthInfo, User } from "../shared/types.ts";
 import { meta, setMetaValue } from "./db.ts";
 import { emailEnabled, escapeHtml, sendEmail } from "./mail.ts";
 import {
-  MIN_PASSWORD, SESSION_MAX_AGE, acceptInvite, checkPassword, createSession, createUser, endSession, hashPassword,
+  MIN_PASSWORD, SESSION_MAX_AGE, acceptInvite, checkPassword, createSession, endSession, hashPassword,
   linkGoogle, normalizeEmail, publicUser, sessionLookup, setPassword, signupAllowed, userByEmail, userByGoogle,
-  userById, renameUser, endAllSessions, clearPassword, userCount, createResetToken, consumeResetToken,
+  userById, renameUser, endAllSessions, clearPassword, userCount, createResetToken, consumeResetToken, signUpWith,
 } from "./users.ts";
 
 const COOKIE = "gr_sid";
@@ -108,11 +108,19 @@ export async function signup(req: Request, res: Response) {
   }
   const inviteToken = typeof invite === "string" ? invite : null;
   if (!signupAllowed(inviteToken)) {
-    return res.status(403).json({ error: "New accounts need an invite link. Ask someone to share a list with you." });
+    return res.status(403).json({
+      error: inviteToken
+        ? "That invite link has already been used or has expired. Ask for a new one."
+        : "New accounts need an invite link. Ask someone to share a list with you.",
+    });
   }
   if (userByEmail(email)) return res.status(409).json({ error: "There's already an account with that email. Sign in instead." });
 
-  const user = createUser({ email, name, passwordHash: await hashPassword(password) });
+  const passwordHash = await hashPassword(password);
+  // Checked again: a single-use invite may have been used while the password was hashing.
+  if (userByEmail(email)) return res.status(409).json({ error: "There's already an account with that email. Sign in instead." });
+  const user = signUpWith(inviteToken, { email, name, passwordHash });
+  if (!user) return res.status(403).json({ error: "That invite link has already been used or has expired. Ask for a new one." });
   startSession(req, res, user.id);
   const listId = inviteToken ? acceptInvite(inviteToken, user.id) : null;
   res.json({ user: publicUser(user), listId });
@@ -173,18 +181,22 @@ export async function forgotPassword(req: Request, res: Response) {
   res.json({ ok: true });
   const user = userByEmail(email);
   if (!user) return;
-  const link = `${origin(req)}/#/reset/${createResetToken(user.id)}`;
   try {
-    await sendEmail(
-      user.email,
-      "Reset your Grocery Run password",
-      `Hi ${user.name},\n\nTo choose a new password, open this link within an hour:\n${link}\n\nIf you didn't ask for this, ignore this email.`,
-      `<p>Hi ${escapeHtml(user.name)},</p><p>To choose a new password, open this link within an hour:</p>` +
-        `<p><a href="${escapeHtml(link)}">Reset my password</a></p><p>If you didn't ask for this, ignore this email.</p>`,
-    );
+    await sendResetEmail(req, user);
   } catch (err) {
     console.error("Password reset email failed:", err instanceof Error ? err.message : err);
   }
+}
+
+export async function sendResetEmail(req: Request, user: { id: string; email: string; name: string }) {
+  const link = `${origin(req)}/#/reset/${createResetToken(user.id)}`;
+  await sendEmail(
+    user.email,
+    "Reset your Grocery Run password",
+    `Hi ${user.name},\n\nTo choose a new password, open this link within an hour:\n${link}\n\nIf you didn't ask for this, ignore this email.`,
+    `<p>Hi ${escapeHtml(user.name)},</p><p>To choose a new password, open this link within an hour:</p>` +
+      `<p><a href="${escapeHtml(link)}">Reset my password</a></p><p>If you didn't ask for this, ignore this email.</p>`,
+  );
 }
 
 export async function resetPassword(req: Request, res: Response) {
@@ -224,7 +236,7 @@ function readState(value: string | undefined): Record<string, string> | null {
   }
 }
 
-function origin(req: Request) {
+export function origin(req: Request) {
   return (process.env.PUBLIC_URL || `${req.protocol}://${req.get("host")}`).replace(/\/$/, "");
 }
 
@@ -322,10 +334,12 @@ export async function googleCallback(req: Request, res: Response) {
         endAllSessions(byEmail.id);
       }
       user = byEmail;
-    } else if (signupAllowed(saved.invite)) {
-      user = createUser({ email: id.email, name: id.name, googleSub: id.sub });
     } else {
-      return fail("New accounts need an invite link. Ask someone to share a list with you.");
+      const created = signUpWith(saved.invite || null, { email: id.email, name: id.name, googleSub: id.sub });
+      if (!created) {
+        return fail(saved.invite ? "That invite link has already been used or has expired. Ask for a new one." : "New accounts need an invite link. Ask someone to share a list with you.");
+      }
+      user = created;
     }
   }
   startSession(req, res, user.id);

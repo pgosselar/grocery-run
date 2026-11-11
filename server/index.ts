@@ -14,6 +14,7 @@ import {
   createRecipe, deleteDishPhoto, deleteRecipe, editRecipe, getDishPhoto, getRecipe, listRecipes, putDishPhoto, recipeShopping,
   tagRecipe, untagRecipe,
 } from "./recipes.ts";
+import { emailReset, inviteSomeone, overview, requireAdmin, revokeInvite, signOutEverywhere, tempPassword } from "./admin.ts";
 import type { Op, ServerMessage } from "../shared/types.ts";
 
 const PORT = Number(process.env.PORT ?? 3001);
@@ -127,7 +128,7 @@ app.delete("/api/lists/:id/members/:userId", requireAuth, (req, res) => {
 
 app.get("/api/invites/:token", (req, res) => {
   const preview = previewInvite(String(req.params.token));
-  if (!preview) return res.status(404).json({ error: "This invite link has expired or been reset. Ask for a new one." });
+  if (!preview) return res.status(404).json({ error: "This invite link has expired, been used, or been reset. Ask for a new one." });
   res.json(preview);
 });
 
@@ -136,6 +137,19 @@ app.post("/api/invites/:token/accept", requireAuth, (req, res) => {
   const listId = acceptInvite(String(req.params.token), user.id);
   if (!listId) return res.status(404).json({ error: "This invite link has expired or been reset. Ask for a new one." });
   res.json({ listId });
+});
+
+// ---------- admin ----------
+
+app.get("/api/admin", requireAdmin, overview);
+app.post("/api/admin/invites", requireAdmin, inviteSomeone);
+app.delete("/api/admin/invites/:token", requireAdmin, revokeInvite);
+app.post("/api/admin/users/:id/temp-password", requireAdmin, tempPassword);
+app.post("/api/admin/users/:id/reset-email", requireAdmin, emailReset);
+app.post("/api/admin/users/:id/sign-out", requireAdmin, (req, res) => {
+  const id = signOutEverywhere(req, res);
+  // Their open apps notice on the next reconnect, which now fails to sign in.
+  if (id) for (const [ws, uid] of sockets) if (uid === id) ws.close();
 });
 
 app.use("/api", (_req, res) => res.status(404).json({ error: "Not found" }));

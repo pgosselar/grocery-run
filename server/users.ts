@@ -13,10 +13,24 @@ interface UserRow {
   password_hash: string | null;
   google_sub: string | null;
   created_at: number;
+  invited_by: string | null;
 }
 
 export function publicUser(u: UserRow): User {
-  return { id: u.id, name: u.name, email: u.email, hasPassword: !!u.password_hash, hasGoogle: !!u.google_sub };
+  const user: User = { id: u.id, name: u.name, email: u.email, hasPassword: !!u.password_hash, hasGoogle: !!u.google_sub };
+  if (isAdmin(u)) user.admin = true;
+  return user;
+}
+
+// ---------- admin ----------
+
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean);
+const firstUser = db.prepare("SELECT id FROM users ORDER BY created_at, rowid LIMIT 1");
+
+/** Whoever's in ADMIN_EMAILS, or without it, the first account made on this server. */
+export function isAdmin(u: { id: string; email: string }): boolean {
+  if (ADMIN_EMAILS.length) return ADMIN_EMAILS.includes(u.email);
+  return (firstUser.get() as { id: string } | undefined)?.id === u.id;
 }
 
 // ---------- passwords ----------
@@ -45,7 +59,7 @@ const byEmail = db.prepare("SELECT * FROM users WHERE email = ?");
 const byGoogle = db.prepare("SELECT * FROM users WHERE google_sub = ?");
 const countUsers = db.prepare("SELECT COUNT(*) AS n FROM users");
 const insertUser = db.prepare(
-  "INSERT INTO users(id, email, name, password_hash, google_sub, created_at) VALUES(?, ?, ?, ?, ?, ?)",
+  "INSERT INTO users(id, email, name, password_hash, google_sub, created_at, invited_by) VALUES(?, ?, ?, ?, ?, ?, ?)",
 );
 const setName = db.prepare("UPDATE users SET name = ? WHERE id = ?");
 const setPasswordHash = db.prepare("UPDATE users SET password_hash = ? WHERE id = ?");
@@ -70,7 +84,7 @@ export function userCount() {
   return (countUsers.get() as { n: number }).n;
 }
 
-export function createUser(input: { email: string; name: string; passwordHash?: string; googleSub?: string }): UserRow {
+export function createUser(input: { email: string; name: string; passwordHash?: string; googleSub?: string; invitedBy?: string }): UserRow {
   const id = randomUUID();
   insertUser.run(
     id,
@@ -79,8 +93,26 @@ export function createUser(input: { email: string; name: string; passwordHash?: 
     input.passwordHash ?? null,
     input.googleSub ?? null,
     Date.now(),
+    input.invitedBy ?? null,
   );
   return userById(id)!;
+}
+
+/**
+ * Makes an account if sign-up is allowed right now, and uses up the app invite it came with, all at once
+ * so two people can't both sign up on one single-use link. Null when sign-up isn't allowed.
+ */
+export function signUpWith(
+  invite: string | null,
+  input: { email: string; name: string; passwordHash?: string; googleSub?: string },
+): UserRow | null {
+  return tx(() => {
+    if (!signupAllowed(invite)) return null;
+    const by = invite ? (inviteByToken(invite)?.created_by ?? appInviteByToken(invite)?.created_by) : undefined;
+    const user = createUser({ ...input, invitedBy: by });
+    if (invite) claimAppInvite.run(user.id, Date.now(), invite, Date.now());
+    return user;
+  });
 }
 
 export function renameUser(id: string, name: string) {
@@ -98,12 +130,12 @@ export function linkGoogle(id: string, sub: string) {
 
 /**
  * New accounts: the very first one is free (that's you setting up the server); after that you need an
- * invite link to a list, unless SIGNUPS=open.
+ * invite link (to a list, or an unused one to the app), unless SIGNUPS=open.
  */
 export function signupAllowed(inviteToken?: string | null): boolean {
   if (process.env.SIGNUPS === "open") return true;
   if (userCount() === 0) return true;
-  return !!(inviteToken && inviteByToken(inviteToken));
+  return !!(inviteToken && (inviteByToken(inviteToken) || appInviteByToken(inviteToken)));
 }
 
 // ---------- sessions ----------
@@ -193,6 +225,10 @@ export function inviteFor(listId: string, userId: string, reset = false): { toke
 }
 
 export function previewInvite(token: string): InvitePreview | null {
+  const app = appInviteByToken(token);
+  if (app) {
+    return { invitedBy: userById(app.created_by)?.name ?? "Someone", name: app.name, email: app.email ?? undefined };
+  }
   const inv = inviteByToken(token);
   if (!inv) return null;
   const list = listById(inv.list_id)!;
@@ -219,6 +255,51 @@ export function acceptInvite(token: string, userId: string): string | null {
     joinListeners.forEach((fn) => fn(inv.list_id));
   }
   return inv.list_id;
+}
+
+// ---------- app invites (from the admin screen) ----------
+
+export interface AppInviteRow {
+  token: string;
+  name: string;
+  email: string | null;
+  created_by: string;
+  created_at: number;
+  expires_at: number;
+  used_by: string | null;
+  used_at: number | null;
+}
+
+const insertAppInvite = db.prepare(
+  "INSERT INTO app_invites(token, name, email, created_by, created_at, expires_at) VALUES(?, ?, ?, ?, ?, ?)",
+);
+const appInviteRow = db.prepare("SELECT * FROM app_invites WHERE token = ? AND used_by IS NULL AND expires_at > ?");
+const claimAppInvite = db.prepare(
+  "UPDATE app_invites SET used_by = ?, used_at = ? WHERE token = ? AND used_by IS NULL AND expires_at > ?",
+);
+const allAppInvites = db.prepare("SELECT * FROM app_invites ORDER BY created_at DESC");
+const deleteAppInvite = db.prepare("DELETE FROM app_invites WHERE token = ? AND used_by IS NULL");
+
+/** An app invite that can still be used */
+function appInviteByToken(token: string) {
+  if (typeof token !== "string" || token.length > 100) return undefined;
+  return appInviteRow.get(token, Date.now()) as AppInviteRow | undefined;
+}
+
+export function createAppInvite(createdBy: string, name: string, email: string | null): AppInviteRow {
+  const token = randomBytes(18).toString("base64url");
+  const t = Date.now();
+  insertAppInvite.run(token, name.trim().slice(0, 40), email ? normalizeEmail(email) : null, createdBy, t, t + INVITE_DAYS * 864e5);
+  return appInviteRow.get(token, t) as unknown as AppInviteRow;
+}
+
+export function listAppInvites() {
+  return allAppInvites.all() as unknown as AppInviteRow[];
+}
+
+/** Only unused invites can be revoked; used ones stay as a record of who invited whom. */
+export function revokeAppInvite(token: string): boolean {
+  return Number(deleteAppInvite.run(token).changes) > 0;
 }
 
 // ---------- password resets ----------

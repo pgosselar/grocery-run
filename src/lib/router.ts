@@ -6,7 +6,8 @@ export type Route =
   | { name: "invite"; token: string }
   | { name: "reset"; token: string }
   | { name: "recipes"; list?: string }
-  | { name: "recipe"; id: string; cook?: boolean };
+  | { name: "recipe"; id: string; cook?: boolean }
+  | { name: "admin" };
 
 function parse(): Route {
   const h = location.hash;
@@ -16,6 +17,7 @@ function parse(): Route {
   if ((m = h.match(/^#\/reset\/([\w-]+)/))) return { name: "reset", token: m[1] };
   if ((m = h.match(/^#\/recipes(?:\/([\w-]+))?/))) return m[1] ? { name: "recipes", list: m[1] } : { name: "recipes" };
   if ((m = h.match(/^#\/recipe\/([\w-]+)(\/cook)?/))) return m[2] ? { name: "recipe", id: m[1], cook: true } : { name: "recipe", id: m[1] };
+  if (/^#\/admin\b/.test(h)) return { name: "admin" };
   return { name: "lists" };
 }
 
@@ -42,6 +44,7 @@ function hashFor(route: Route) {
     case "list": return `#/list/${route.id}`;
     case "recipes": return route.list ? `#/recipes/${route.list}` : "#/recipes";
     case "recipe": return `#/recipe/${route.id}${route.cook ? "/cook" : ""}`;
+    case "admin": return "#/admin";
     default: return `#/${route.name}/${route.token}`;
   }
 }

@@ -29,6 +29,8 @@ export interface User {
   email: string;
   hasPassword: boolean;
   hasGoogle: boolean;
+  /** Can open the admin screen */
+  admin?: boolean;
 }
 
 export interface Member {
@@ -50,11 +52,15 @@ export interface AuthInfo {
   recipePhotos?: boolean;
 }
 
+/** What an invite link shows before you accept it. No `listName`: an invite to the app, not to a list. */
 export interface InvitePreview {
-  listName: string;
   invitedBy: string;
-  color: ListColor;
-  icon: string;
+  listName?: string;
+  color?: ListColor;
+  icon?: string;
+  /** App invites: who it's for, to fill in the sign-up form */
+  name?: string;
+  email?: string;
 }
 
 export interface Item {
@@ -109,6 +115,7 @@ export interface HistoryEntry {
   addedBy: string;
   createdAt: number;
   completedBy: string;
+  completedById?: string;
   completedAt: number;
 }
 
@@ -202,4 +209,59 @@ export interface RecipeSummary {
   totalTime: string | null;
   lists: string[];
   updatedAt: number;
+}
+
+// ---------- admin ----------
+
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  signIn: ("password" | "google")[];
+  admin: boolean;
+  joinedAt: number;
+  invitedBy: string | null;
+  /** Last time any of their devices talked to the server (to within an hour) */
+  lastActive: number | null;
+  devices: number;
+  listsOwned: number;
+  listsShared: number;
+  itemsAdded: number;
+  itemsAddedWeek: number;
+  checkedOff: number;
+  checkedOffWeek: number;
+  recipes: number;
+  photos: number;
+}
+
+export interface AdminInvite {
+  token: string;
+  url: string;
+  name: string;
+  email: string | null;
+  createdBy: string;
+  createdAt: number;
+  expiresAt: number;
+  usedBy: { id: string; name: string } | null;
+  usedAt: number | null;
+}
+
+export interface AdminOverview {
+  users: AdminUser[];
+  invites: AdminInvite[];
+  totals: {
+    users: number;
+    activeWeek: number;
+    lists: number;
+    openItems: number;
+    itemsAddedWeek: number;
+    checkedOffWeek: number;
+    recipes: number;
+    photos: number;
+  };
+  server: {
+    email: boolean;
+    dbBytes: number;
+    backups: { ok: boolean; lastBackup: string | null; problems: string[]; mirror: boolean };
+  };
 }

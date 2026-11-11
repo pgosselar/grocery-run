@@ -53,9 +53,19 @@ Settings and secrets live in `.env`, which is gitignored. The database is in `./
 
 **First run:** the first person to open the app creates the first account, so do that yourself right after deploying. Then share a list with each family member.
 
-### Accounts admin
+### Admin screen
 
-There's no email verification. Without Resend configured, reset a forgotten password from the server:
+The first account made on the server is the admin (or set `ADMIN_EMAILS`). Open it from **Account → Admin**. It shows:
+
+- **People**: when each person was last active (to within an hour), how many devices they're signed in on, their lists, and how many items they've added and checked off. Only counts are shown, never what's on anyone's lists. For someone who can't sign in, you can email them a reset link, make a temporary password to read out to them, or sign them out everywhere.
+- **Invites**: single-use links that give someone their own account without adding them to one of your lists. Each link works for 14 days. With email set up it can be sent for you; otherwise share the link. Their name and email are filled in on the sign-up form.
+- **Totals and server**: this week's activity, and whether backups and the NAS copy are healthy.
+
+Non-admins get a "not found" for anything under `/api/admin`.
+
+### Accounts from the command line
+
+There's no email verification. Without Resend configured, you can also reset a forgotten password from the server:
 
 ```sh
 docker compose exec grocery-run node server/cli.ts users
@@ -117,7 +127,8 @@ Add a Proxy Host with these settings:
 | `PUBLIC_URL` | from request | Public address, used in invite, reset, and Google links |
 | `SESSION_SECRET` | stored in DB | Signs the Google sign-in handshake |
 | `SIGNUPS` | `invite` | `open` lets anyone create an account without an invite |
-| `RESEND_API_KEY`, `EMAIL_FROM` | *(unset)* | Password reset emails |
+| `RESEND_API_KEY`, `EMAIL_FROM` | *(unset)* | Password reset and invite emails |
+| `ADMIN_EMAILS` | first account | Comma-separated emails that can open the admin screen |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | *(unset)* | Continue with Google |
 | `ANTHROPIC_API_KEY` | *(unset)* | Optional. Recipe import uses Claude to clean up ingredients, and falls back to the built-in rules if the call fails. |
 | `RECIPE_MODEL` | `claude-opus-5-5` | Claude model for recipe cleanup |

@@ -10,6 +10,7 @@ import { ResetPassword } from "@/components/ResetPassword";
 import { Toaster } from "@/components/Toaster";
 import { RecipesScreen } from "@/components/RecipesScreen";
 import { RecipeScreen } from "@/components/RecipeScreen";
+import { AdminScreen } from "@/components/AdminScreen";
 
 export default function App() {
   const { user } = useStore();
@@ -60,6 +61,8 @@ export default function App() {
         onSignedIn={(u: User, listId: string | null) => {
           startSync(u);
           if (listId) navigate({ name: "list", id: listId }, true);
+          // An invite to the app (not a list) is used up now; don't land on it.
+          else if (invite) navigate({ name: "lists" }, true);
         }}
       />
     );
@@ -73,6 +76,8 @@ export default function App() {
         <RecipesScreen list={route.list} />
       ) : route.name === "recipe" ? (
         <RecipeScreen key={route.id} id={route.id} cook={!!route.cook} />
+      ) : route.name === "admin" && user.admin ? (
+        <AdminScreen />
       ) : (
         <ListsScreen />
       )}

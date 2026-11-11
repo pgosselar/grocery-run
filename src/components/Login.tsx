@@ -41,7 +41,12 @@ export function Login({
   useEffect(() => {
     if (!invite) return;
     previewInvite(invite)
-      .then(setPreview)
+      .then((p) => {
+        setPreview(p);
+        // An invite made for someone fills in their details.
+        if (p.name) setName((n) => n || p.name!);
+        if (p.email) setEmail((e) => e || p.email!);
+      })
       .catch((e: Error) => setError(e.message));
   }, [invite]);
 
@@ -74,16 +79,26 @@ export function Login({
     <div className="pt-safe pb-safe flex min-h-dvh items-center justify-center px-6 py-10">
       <div className="w-full max-w-sm space-y-6">
         <div className="flex flex-col items-center text-center">
-          {preview ? (
+          {preview?.listName ? (
             <>
               <div
                 className="mb-4 flex size-20 items-center justify-center rounded-full text-white shadow-lg"
-                style={{ backgroundColor: LIST_COLORS[preview.color] }}
+                style={{ backgroundColor: LIST_COLORS[preview.color ?? "theme"] }}
               >
-                <ListIcon name={preview.icon} className="size-10" />
+                <ListIcon name={preview.icon ?? ""} className="size-10" />
               </div>
               <h1 className="text-2xl font-bold tracking-tight">Join “{preview.listName}”</h1>
               <p className="mt-1 text-muted-foreground">{preview.invitedBy} shared this list with you.</p>
+            </>
+          ) : preview ? (
+            <>
+              <div className="bg-primary text-primary-foreground mb-4 flex size-20 items-center justify-center rounded-[1.4rem] shadow-lg">
+                <ShoppingBasket className="size-10" />
+              </div>
+              <h1 className="text-2xl font-bold tracking-tight">Welcome to Grocery Run</h1>
+              <p className="mt-1 text-muted-foreground">
+                {preview.invitedBy} invited you{preview.name ? `, ${preview.name.split(/\s+/)[0]}` : ""}. Make an account to start your own lists.
+              </p>
             </>
           ) : (
             <>

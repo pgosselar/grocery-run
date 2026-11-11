@@ -68,6 +68,17 @@ db.exec(`
     expires_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS invites_list ON invites(list_id);
+  -- Invites to the app itself, not to a list: single use, made from the admin screen.
+  CREATE TABLE IF NOT EXISTS app_invites (
+    token TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT,
+    created_by TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    used_by TEXT,
+    used_at INTEGER
+  );
   CREATE TABLE IF NOT EXISTS password_resets (
     token_hash TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -105,6 +116,11 @@ db.exec(`
     id UNINDEXED, title, ingredients, body, tokenize = "porter unicode61 remove_diacritics 2"
   );
 `);
+
+// Columns added after the first release.
+if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'invited_by'").get()) {
+  db.exec("ALTER TABLE users ADD COLUMN invited_by TEXT");
+}
 
 export function tx<T>(fn: () => T): T {
   db.exec("BEGIN");
@@ -258,6 +274,7 @@ function logCompletion(item: Item) {
     addedBy: item.addedBy,
     createdAt: item.createdAt,
     completedBy: item.completedBy ?? "",
+    completedById: item.completedById,
     completedAt: at,
   };
   insertCompletion.run(item.id, item.listId, item.section, at, JSON.stringify(entry));
