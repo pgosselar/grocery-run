@@ -12,6 +12,7 @@ import { RecipesScreen } from "@/components/RecipesScreen";
 import { RecipeScreen } from "@/components/RecipeScreen";
 import { AdminScreen } from "@/components/AdminScreen";
 import { MovedScreen, movedTo } from "@/components/MovedScreen";
+import { HomeScreenPrompt } from "@/components/HomeScreenPrompt";
 
 export default function App() {
   const { user } = useStore();
@@ -85,6 +86,7 @@ export default function App() {
       ) : (
         <ListsScreen />
       )}
+      <HomeScreenPrompt />
       <Toaster />
     </>
   );

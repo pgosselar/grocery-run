@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, LogOut, ShieldCheck } from "lucide-react";
+import { ChevronRight, LogOut, ShieldCheck, SquarePlus } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { signOut, updateAccount, useStore } from "@/lib/store";
 import { navigate } from "@/lib/router";
+import { homeScreenPlatform, isStandalone, showHomeScreenHelp } from "@/lib/homescreen";
 import { Avatar } from "./ShareSheet";
 
 export function AccountSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -76,6 +77,20 @@ export function AccountSheet({ open, onClose }: { open: boolean; onClose: () => 
         </div>
 
         {user.hasGoogle && <p className="px-1 text-sm text-muted-foreground">Google sign-in is connected.</p>}
+
+        {homeScreenPlatform() && !isStandalone() && (
+          <button
+            className="flex w-full items-center gap-3 rounded-xl bg-card px-4 py-3 text-left shadow-sm active:bg-accent"
+            onClick={() => { onClose(); showHomeScreenHelp(); }}
+          >
+            <SquarePlus className="text-primary size-5" />
+            <span className="flex-1">
+              <span className="block font-medium">Add to Home Screen</span>
+              <span className="block text-xs text-muted-foreground">Open Lane Nine like an app, even with no signal</span>
+            </span>
+            <ChevronRight className="size-5 text-muted-foreground/60" />
+          </button>
+        )}
 
         {user.admin && (
           <button

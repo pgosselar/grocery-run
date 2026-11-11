@@ -10,11 +10,13 @@ import { LIST_COLORS } from "@/lib/colors";
 import { ListIcon } from "@/lib/icons";
 import { ListEditor } from "./ListEditor";
 import { AccountSheet } from "./AccountSheet";
+import { useAskForHomeScreen } from "./HomeScreenPrompt";
 import { Avatar } from "./ShareSheet";
 import { SyncBadge } from "./SyncBadge";
 import { cn } from "@/lib/utils";
 
 export function ListsScreen() {
+  useAskForHomeScreen();
   const state = useStore();
   const lists = useMemo(() => sortedLists(state), [state.lists]);
   const counts = useMemo(() => {
