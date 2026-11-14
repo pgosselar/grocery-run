@@ -18,7 +18,10 @@ export function ItemRow({
   onMove,
   onEnter,
   price,
+  showNotes = true,
 }: {
+  /** Show the line under the name (price and notes) */
+  showNotes?: boolean;
   /** Its estimated cost, when prices are on ("$4.29") */
   price?: string | null;
   item: Item;
@@ -49,7 +52,10 @@ export function ItemRow({
 
   const longPress = useLongPress(onMove);
 
-  const meta = [item.quantity && `Qty ${item.quantity}`, price, item.notes].filter(Boolean).join(" · ");
+  const meta = showNotes ? [price, item.notes].filter(Boolean).join(" · ") : "";
+  // "2" alone reads as "×2"; "3 cups" reads as is.
+  const qty = item.quantity.trim();
+  const qtyText = /^\d+(\.\d+)?$/.test(qty) ? `×${qty}` : qty;
 
   return (
     <div
@@ -86,27 +92,30 @@ export function ItemRow({
           </button>
           <div className="flex min-w-0 flex-1 items-start gap-2 item-sep border-b py-2.5 pr-3">
             <div className="min-w-0 flex-1">
-              <input
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                onFocus={() => setFocused(true)}
-                onBlur={() => {
-                  setFocused(false);
-                  commitTitle();
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    (e.target as HTMLInputElement).blur();
-                    onEnter();
-                  }
-                }}
-                enterKeyHint="next"
-                className={cn(
-                  "w-full bg-transparent text-[17px] leading-6 outline-none",
-                  item.completed && "text-muted-foreground",
-                )}
-              />
+              <div className="flex min-w-0 items-baseline gap-2">
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  onFocus={() => setFocused(true)}
+                  onBlur={() => {
+                    setFocused(false);
+                    commitTitle();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      (e.target as HTMLInputElement).blur();
+                      onEnter();
+                    }
+                  }}
+                  enterKeyHint="next"
+                  className={cn(
+                    "w-full min-w-0 flex-1 bg-transparent text-[17px] leading-6 text-ellipsis outline-none",
+                    item.completed && "text-muted-foreground",
+                  )}
+                />
+                {qty && <span className="max-w-[45%] shrink-0 truncate tabular-nums text-sm text-muted-foreground">{qtyText}</span>}
+              </div>
               {meta && <div className="truncate text-sm text-muted-foreground">{meta}</div>}
             </div>
             {item.flagged && <Flag className="mt-1 size-4 shrink-0 fill-orange-500 text-orange-500" />}

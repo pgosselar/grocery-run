@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  BookOpen, ChefHat, ChevronLeft, Ellipsis, Eye, EyeOff, History, Info, LayoutList, ListOrdered, Plus, Receipt, Rows3, Trash2, UserPlus,
+  BookOpen, ChefHat, ChevronLeft, Ellipsis, Eye, EyeOff, History, Info, LayoutList, ListOrdered, Plus, Receipt, Rows3, Text, TextSelect, Trash2, UserPlus,
   Users,
 } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -43,6 +43,13 @@ export function ListScreen({ id }: { id: string }) {
   const setShowCompleted = (v: boolean) => {
     setShowCompletedRaw(v);
     saveStorage(showKey, v);
+  };
+
+  const notesKey = `gr.showNotes.${id}`;
+  const [showNotes, setShowNotesRaw] = useState(() => safeStorage(notesKey, true));
+  const setShowNotes = (v: boolean) => {
+    setShowNotesRaw(v);
+    saveStorage(notesKey, v);
   };
 
   // Items checked off moments ago stay visible briefly, like Reminders.
@@ -168,6 +175,10 @@ export function ListScreen({ id }: { id: string }) {
                   {showCompleted ? "Hide Completed" : "Show Completed"}
                   {showCompleted ? <EyeOff /> : <Eye />}
                 </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setShowNotes(!showNotes)}>
+                  {showNotes ? "Hide Notes" : "Show Notes"}
+                  {showNotes ? <TextSelect /> : <Text />}
+                </DropdownMenuItem>
                 <DropdownMenuItem destructive disabled={!completedCount} onSelect={() => clearCompleted(id)}>
                   Clear {completedCount || ""} Completed <Trash2 />
                 </DropdownMenuItem>
@@ -200,8 +211,13 @@ export function ListScreen({ id }: { id: string }) {
                 </button>
               </>
             )}
-            <button className="flex items-center gap-1" style={{ color }} onClick={() => setHistoryFor(null)}>
-              <History className="size-4" /> History
+            <button
+              className="-m-1.5 rounded-full p-1.5"
+              style={{ color }}
+              aria-label="Recently completed"
+              onClick={() => setHistoryFor(null)}
+            >
+              <History className="size-4.5" />
             </button>
           </span>
         </div>
@@ -219,9 +235,9 @@ export function ListScreen({ id }: { id: string }) {
                       <button
                         onClick={() => setHistoryFor(g.section || null)}
                         aria-label={`Recently completed${g.section ? ` in ${sectionName(sections, g.section)}` : ""}`}
-                        className="-mr-1 flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium text-muted-foreground active:bg-accent"
+                        className="-mr-1 rounded-full p-1.5 text-muted-foreground active:bg-accent"
                       >
-                        <History className="size-4" /> History
+                        <History className="size-4" />
                       </button>
                     )}
                   </div>
@@ -236,6 +252,7 @@ export function ListScreen({ id }: { id: string }) {
                         onInfo={() => setDetailId(item.id)}
                         onMove={() => setMoveId(item.id)}
                         onEnter={() => setAdding(true)}
+                        showNotes={showNotes}
                         price={pricesOn && !item.completed ? priceText(item, findProduct(item.title)) : null}
                       />
                     ))}
