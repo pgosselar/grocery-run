@@ -3,7 +3,7 @@
 import type { Request, Response } from "express";
 import { randomUUID } from "node:crypto";
 import type {
-  DishPhoto, ListSection, ParsedIngredient, Recipe, RecipeDraft, RecipeImport, RecipeLine, RecipeSummary, ShoppingItem,
+  DishPhoto, ListSection, ParsedIngredient, Recipe, RecipeComment, RecipeDraft, RecipeImport, RecipeLine, RecipeSummary, ShoppingItem,
 } from "../shared/types.ts";
 import { categorize, defaultSections } from "../shared/sections.ts";
 import { normalizeTime } from "../shared/time.ts";
@@ -133,6 +133,38 @@ function dishPhoto(id: string): DishPhoto | null {
   return p ? { url: photoUrl(id, p.added_at, "full"), thumb: photoUrl(id, p.added_at, "thumb"), addedBy: p.added_by, addedAt: p.added_at } : null;
 }
 
+// ---------- ratings & comments ----------
+
+const ratingsFor = db.prepare(`
+  SELECT rr.user_id, rr.stars, COALESCE(u.name, 'Someone') AS name FROM recipe_ratings rr
+  LEFT JOIN users u ON u.id = rr.user_id WHERE rr.recipe_id = ? ORDER BY rr.stars DESC, rr.rated_at
+`);
+const avgRatings = db.prepare("SELECT recipe_id, AVG(stars) AS avg FROM recipe_ratings GROUP BY recipe_id");
+const putRating = db.prepare(`
+  INSERT INTO recipe_ratings(recipe_id, user_id, stars, rated_at) VALUES(?, ?, ?, ?)
+  ON CONFLICT(recipe_id, user_id) DO UPDATE SET stars = excluded.stars, rated_at = excluded.rated_at
+`);
+const clearRating = db.prepare("DELETE FROM recipe_ratings WHERE recipe_id = ? AND user_id = ?");
+const commentsFor = db.prepare(`
+  SELECT c.id, c.user_id, c.text, c.created_at, COALESCE(u.name, 'Someone') AS name FROM recipe_comments c
+  LEFT JOIN users u ON u.id = c.user_id WHERE c.recipe_id = ? ORDER BY c.created_at
+`);
+const insertComment = db.prepare("INSERT INTO recipe_comments(id, recipe_id, user_id, text, created_at) VALUES(?, ?, ?, ?, ?)");
+const commentRow = db.prepare("SELECT recipe_id, user_id FROM recipe_comments WHERE id = ?");
+const deleteCommentRow = db.prepare("DELETE FROM recipe_comments WHERE id = ?");
+
+function ratingsOf(id: string, userId: string): Recipe["ratings"] {
+  return (ratingsFor.all(id) as { user_id: string; stars: number; name: string }[]).map((r) => ({
+    name: r.name, stars: r.stars, me: r.user_id === userId,
+  }));
+}
+
+function commentsOf(id: string, userId: string): RecipeComment[] {
+  return (commentsFor.all(id) as { id: string; user_id: string; text: string; created_at: number; name: string }[]).map((c) => ({
+    id: c.id, by: c.name, text: c.text, at: c.created_at, mine: c.user_id === userId,
+  }));
+}
+
 const visibleRows = db.prepare(`SELECT r.id, r.data, r.updated_at FROM recipes r WHERE ${VISIBLE} ORDER BY r.updated_at DESC`);
 const visibleByUrl = db.prepare(`SELECT r.id FROM recipes r WHERE r.url = ? AND ${VISIBLE} ORDER BY r.created_at LIMIT 1`);
 /** Tags limited to lists this person is on: other people's list names aren't theirs to see. */
@@ -174,6 +206,8 @@ function recipeFor(id: string, userId: string): Recipe | null {
     lists: (myTagsFor.all(userId, id) as { list_id: string }[]).map((r) => r.list_id),
     mine: row.created_by === userId,
     photo: dishPhoto(id),
+    ratings: ratingsOf(id, userId),
+    comments: commentsOf(id, userId),
   };
 }
 
@@ -206,6 +240,7 @@ export function searchRecipes(userId: string, q: string, listId: string | null):
     rows = [];
   }
   if (listId) rows = rows.filter((r) => tags.get(r.id)?.includes(listId));
+  const avg = new Map((avgRatings.all() as { recipe_id: string; avg: number }[]).map((r) => [r.recipe_id, r.avg]));
   const photos = new Map((allPhotoTimes.all() as { recipe_id: string; added_at: number }[]).map((p) => [p.recipe_id, p.added_at]));
   return rows.slice(0, 300).map((r) => {
     const d = JSON.parse(r.data) as RecipeDraft;
@@ -218,6 +253,7 @@ export function searchRecipes(userId: string, q: string, listId: string | null):
       totalTime: d.times.total ?? null,
       lists: tags.get(r.id) ?? [],
       updatedAt: r.updated_at,
+      rating: avg.get(r.id) ?? null,
     };
   });
 }
@@ -417,4 +453,39 @@ export function deleteDishPhoto(req: Request, res: Response) {
   if (!canSee(id, user.id)) return notFound(res);
   deletePhoto.run(id);
   res.json(recipeFor(id, user.id));
+}
+
+// ---------- ratings & comments ----------
+
+/** Anyone who can see a recipe can rate it, 1–5 stars; 0 takes their rating back. */
+export function rateRecipe(req: Request, res: Response) {
+  const user = currentUser(res);
+  const id = String(req.params.id);
+  if (!canSee(id, user.id)) return notFound(res);
+  const stars = Number((req.body ?? {}).stars);
+  if (!Number.isInteger(stars) || stars < 0 || stars > 5) return res.status(400).json({ error: "Stars go from 1 to 5." });
+  if (stars === 0) clearRating.run(id, user.id);
+  else putRating.run(id, user.id, stars, Date.now());
+  res.json(recipeFor(id, user.id));
+}
+
+export function addComment(req: Request, res: Response) {
+  const user = currentUser(res);
+  const id = String(req.params.id);
+  if (!canSee(id, user.id)) return notFound(res);
+  const text = str((req.body ?? {}).text, 4000);
+  if (!text) return res.status(400).json({ error: "Write something first." });
+  insertComment.run(randomUUID(), id, user.id, text, Date.now());
+  res.json(recipeFor(id, user.id));
+}
+
+/** People delete their own comments; whoever saved the recipe can tidy up any of them. */
+export function deleteComment(req: Request, res: Response) {
+  const user = currentUser(res);
+  const c = commentRow.get(String(req.params.commentId)) as { recipe_id: string; user_id: string } | undefined;
+  const r = c && recipeFor(c.recipe_id, user.id);
+  if (!c || !r) return res.status(404).json({ error: "That comment is gone." });
+  if (c.user_id !== user.id && !r.mine) return res.status(403).json({ error: "You can only delete your own comments." });
+  deleteCommentRow.run(String(req.params.commentId));
+  res.json(recipeFor(c.recipe_id, user.id));
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BookOpen, ChefHat, ChevronLeft, Clock, Loader2, Plus, Search, WifiOff, X } from "lucide-react";
+import { BookOpen, ChefHat, ChevronLeft, Clock, Loader2, Plus, Search, Star, WifiOff, X } from "lucide-react";
 import type { RecipeSummary } from "../../shared/types";
 import { sortedLists, useStore } from "@/lib/store";
 import { searchRecipes } from "@/lib/recipes";
@@ -131,6 +131,11 @@ function Card({ recipe }: { recipe: RecipeSummary }) {
               {l.name}
             </span>
           ))}
+          {recipe.rating != null && (
+            <span className="flex items-center gap-0.5">
+              <Star className="size-3 fill-amber-400 text-amber-400" /> {recipe.rating.toFixed(1).replace(/\.0$/, "")}
+            </span>
+          )}
           {recipe.totalTime && (
             <span className="flex items-center gap-1">
               <Clock className="size-3" /> {recipe.totalTime}

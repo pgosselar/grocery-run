@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, BookOpen, Camera, Check, ChefHat, Images, Link2, Loader2, Sparkles, TextCursorInput, X } from "lucide-react";
+import { AlertTriangle, BookOpen, Camera, Check, ChefHat, Images, Info, Link2, Loader2, Sparkles, TextCursorInput, X } from "lucide-react";
 import type { GroceryList, Recipe, RecipeImport } from "../../shared/types";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import { Toggle } from "./ListEditor";
 const MAX_PHOTOS = 4;
 
 /** An ingredient as offered for adding. Each one can go to a different list (milk to Costco, herbs to the market). */
-type Row = RecipeImport["ingredients"][number] & { key: number; selected: boolean; listId: string };
+type Row = RecipeImport["ingredients"][number] & { key: number; selected: boolean; listId: string; showInfo?: boolean };
 
 /** The section an ingredient lands in when it's sent to another list, whose sections may differ. */
 function sectionOn(list: GroceryList, title: string, section: string) {
@@ -73,6 +73,9 @@ export function RecipeImportSheet({
     setError(null);
     setLoading(false);
     setSave(true);
+    // Each import starts blank; last time's link or pasted recipe isn't this one.
+    setUrl("");
+    setText("");
     setPhotos((ps) => {
       ps.forEach((p) => URL.revokeObjectURL(p.preview));
       return [];
@@ -427,11 +430,24 @@ export function RecipeImportSheet({
                   {r.selected && <Check className="size-4" strokeWidth={3} />}
                 </button>
                 <div className={cn("min-w-0 flex-1", !r.selected && "opacity-60")}>
-                  <input
-                    value={r.title}
-                    onChange={(e) => update(r.key, { title: e.target.value })}
-                    className="w-full bg-transparent text-[16px] font-medium outline-none"
-                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={r.title}
+                      onChange={(e) => update(r.key, { title: e.target.value })}
+                      className="min-w-0 flex-1 bg-transparent text-[16px] font-medium outline-none"
+                    />
+                    {(r.notes || r.original) && (
+                      <button
+                        aria-label={r.showInfo ? `Hide details for ${r.title}` : `Details for ${r.title}`}
+                        aria-expanded={!!r.showInfo}
+                        onClick={() => update(r.key, { showInfo: !r.showInfo })}
+                        className="-my-1 shrink-0 rounded p-1 transition-colors"
+                        style={{ color: r.showInfo ? rowColor(r) : "var(--muted-foreground)" }}
+                      >
+                        <Info className="size-4.5" />
+                      </button>
+                    )}
+                  </div>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
                     <label className="flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
                       Qty
@@ -464,13 +480,16 @@ export function RecipeImportSheet({
                     </select>
                     {isOnList(r) && <span className="rounded bg-muted px-1.5 py-0.5" style={{ color: rowColor(r) }}>Already on list</span>}
                     {r.staple && !isOnList(r) && <span className="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">Pantry staple</span>}
-                    {r.notes && <span className="truncate text-muted-foreground">{r.notes}</span>}
                   </div>
-                  {r.original && (
-                    <details className="mt-1 text-xs text-muted-foreground/80">
-                      <summary className="cursor-pointer select-none">Recipe line</summary>
-                      <p className="mt-1 whitespace-pre-line">{r.original}</p>
-                    </details>
+                  {r.showInfo && (
+                    <div className="mt-1.5 space-y-1 rounded-lg bg-muted/60 px-2.5 py-2 text-xs text-muted-foreground">
+                      {r.notes && <p className="text-foreground/80">{r.notes}</p>}
+                      {r.original && (
+                        <p className="whitespace-pre-line">
+                          <span className="font-medium">Recipe says:</span> {r.original}
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               </li>
@@ -478,7 +497,15 @@ export function RecipeImportSheet({
           </ul>
 
           {!readding && (
-            <Button variant="ghost" className="w-full" onClick={() => setRecipe(null)}>
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => {
+                setRecipe(null);
+                setText("");
+                setUrl("");
+              }}
+            >
               Try a different recipe
             </Button>
           )}

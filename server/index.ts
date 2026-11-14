@@ -12,7 +12,7 @@ import { acceptInvite, inviteFor, onJoin, previewInvite } from "./users.ts";
 import { importPhoto, importRecipe } from "./recipe/index.ts";
 import {
   createRecipe, deleteDishPhoto, deleteRecipe, editRecipe, getDishPhoto, getRecipe, listRecipes, putDishPhoto, recipeShopping,
-  tagRecipe, untagRecipe,
+  tagRecipe, untagRecipe, rateRecipe, addComment, deleteComment,
 } from "./recipes.ts";
 import { emailReset, inviteSomeone, overview, requireAdmin, revokeInvite, signOutEverywhere, tempPassword } from "./admin.ts";
 import {
@@ -85,6 +85,9 @@ app.delete("/api/recipes/:id", requireAuth, deleteRecipe);
 app.post("/api/recipes/:id/lists", requireAuth, tagRecipe);
 app.delete("/api/recipes/:id/lists/:listId", requireAuth, untagRecipe);
 app.post("/api/recipes/:id/shopping", requireAuth, recipeShopping);
+app.put("/api/recipes/:id/rating", requireAuth, rateRecipe);
+app.post("/api/recipes/:id/comments", requireAuth, addComment);
+app.delete("/api/recipe-comments/:commentId", requireAuth, deleteComment);
 app.get("/api/recipes/:id/photo", requireAuth, getDishPhoto);
 app.put("/api/recipes/:id/photo", requireAuth, putDishPhoto);
 app.delete("/api/recipes/:id/photo", requireAuth, deleteDishPhoto);

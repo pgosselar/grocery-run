@@ -17,6 +17,7 @@ import { RecipeImportSheet } from "./RecipeImportSheet";
 import { RecipeEditSheet } from "./RecipeEditSheet";
 import { CookMode } from "./CookMode";
 import { DishHero } from "./DishPhoto";
+import { RatingSummary, RecipeFeedback } from "./RecipeFeedback";
 
 export function RecipeScreen({ id, cook }: { id: string; cook: boolean }) {
   const state = useStore();
@@ -138,6 +139,7 @@ export function RecipeScreen({ id, cook }: { id: string; cook: boolean }) {
             )}
           </p>
         )}
+        <RatingSummary recipe={recipe} />
         {recipe.description && <p className="mt-3 text-[15px] text-muted-foreground">{recipe.description}</p>}
 
         {meta.length > 0 && (
@@ -191,6 +193,8 @@ export function RecipeScreen({ id, cook }: { id: string; cook: boolean }) {
             <p className="whitespace-pre-line text-[16px] leading-relaxed">{recipe.notes}</p>
           </section>
         )}
+
+        <RecipeFeedback recipe={recipe} color={color} onChange={setRecipe} />
 
         <p className="mt-8 text-center text-xs text-muted-foreground">
           Saved by {recipe.createdBy} · {formatWhen(recipe.createdAt)}

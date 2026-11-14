@@ -112,6 +112,22 @@ db.exec(`
     added_by TEXT NOT NULL,
     added_at INTEGER NOT NULL
   );
+  -- Each person's star rating of a recipe (one per person), and comments ("made it Sunday, needed more salt").
+  CREATE TABLE IF NOT EXISTS recipe_ratings (
+    recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
+    stars INTEGER NOT NULL,
+    rated_at INTEGER NOT NULL,
+    PRIMARY KEY (recipe_id, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS recipe_comments (
+    id TEXT PRIMARY KEY,
+    recipe_id TEXT NOT NULL REFERENCES recipes(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS recipe_comments_recipe ON recipe_comments(recipe_id, created_at);
   -- Prices & receipts: each list (one store) learns the products bought there, under names a person
   -- would recognize, and what they cost. Aliases tie receipt text, store item numbers and the names
   -- people type ("chocolate milk") to a product.

@@ -42,7 +42,14 @@ const summaryOf = (r: Recipe): RecipeSummary => ({
   totalTime: r.times.total ?? null,
   lists: r.lists,
   updatedAt: r.updatedAt,
+  rating: averageStars(r),
 });
+
+/** Average stars, or null if nobody has rated it. */
+export function averageStars(r: Pick<Recipe, "ratings">): number | null {
+  const rs = r.ratings ?? [];
+  return rs.length ? rs.reduce((a, x) => a + x.stars, 0) / rs.length : null;
+}
 
 const offline = (e: unknown) => e instanceof Error && /reach the server/.test(e.message);
 
@@ -121,6 +128,25 @@ export async function setDishPhoto(id: string, photo: { full: string; thumb: str
 
 export async function removeDishPhoto(id: string) {
   const r = await api<Recipe>("DELETE", `/api/recipes/${id}/photo`);
+  remember(r);
+  return r;
+}
+
+/** Rate a recipe 1–5 stars; 0 takes the rating back. */
+export async function rateRecipe(id: string, stars: number) {
+  const r = await api<Recipe>("PUT", `/api/recipes/${id}/rating`, { stars });
+  remember(r);
+  return r;
+}
+
+export async function addComment(id: string, text: string) {
+  const r = await api<Recipe>("POST", `/api/recipes/${id}/comments`, { text });
+  remember(r);
+  return r;
+}
+
+export async function deleteComment(commentId: string) {
+  const r = await api<Recipe>("DELETE", `/api/recipe-comments/${commentId}`);
   remember(r);
   return r;
 }

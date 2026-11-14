@@ -279,6 +279,18 @@ export interface Recipe extends RecipeDraft {
   mine: boolean;
   /** A photo of the finished dish someone here took. Shown instead of the source site's image. */
   photo: DishPhoto | null;
+  /** Everyone's stars, highest first; `me` marks this person's */
+  ratings: { name: string; stars: number; me: boolean }[];
+  comments: RecipeComment[];
+}
+
+export interface RecipeComment {
+  id: string;
+  by: string;
+  text: string;
+  at: number;
+  /** Whether this person wrote it (and so may delete it) */
+  mine: boolean;
 }
 
 export interface DishPhoto {
@@ -297,6 +309,8 @@ export interface RecipeSummary {
   totalTime: string | null;
   lists: string[];
   updatedAt: number;
+  /** Average stars, or null if nobody has rated it */
+  rating: number | null;
 }
 
 // ---------- admin ----------
