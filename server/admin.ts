@@ -5,6 +5,7 @@ import { statSync } from "node:fs";
 import type { NextFunction, Request, Response } from "express";
 import type { AdminInvite, AdminOverview, AdminUser } from "../shared/types.ts";
 import { backupHealth } from "./backup.ts";
+import { usageSummary } from "./usage.ts";
 import { db } from "./db.ts";
 import { emailEnabled, escapeHtml, sendEmail } from "./mail.ts";
 import { BACKUP_MIRROR_DIR, DB_PATH } from "./paths.ts";
@@ -141,6 +142,7 @@ export function overview(req: Request, res: Response) {
   const body: AdminOverview = {
     users,
     invites: listAppInvites().map((i) => inviteView(req, i)),
+    usage: usageSummary(),
     totals: {
       users: users.length,
       activeWeek: users.filter((u) => u.lastActive && u.lastActive > since).length,

@@ -6,6 +6,7 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import type { ListSection, ParsedIngredient } from "../../shared/types.ts";
 import { categorize } from "../../shared/sections.ts";
+import { recordUsage, type UsageTag } from "../usage.ts";
 
 export const claudeEnabled = Boolean(process.env.ANTHROPIC_API_KEY);
 
@@ -70,7 +71,7 @@ function sectionContext(sections: ListSection[]) {
   return { names, idByName, guide };
 }
 
-async function ask<T extends z.ZodType>(schema: T, system: string, content: string): Promise<z.infer<T>> {
+async function ask<T extends z.ZodType>(tag: UsageTag, schema: T, system: string, content: string): Promise<z.infer<T>> {
   if (!client) throw new Error("Claude is not configured");
   const response = await client.beta.messages.parse({
     model: MODEL,
@@ -83,6 +84,7 @@ async function ask<T extends z.ZodType>(schema: T, system: string, content: stri
     system,
     messages: [{ role: "user", content }],
   });
+  recordUsage(tag, response, response.stop_reason !== "refusal" && response.stop_reason !== "max_tokens" && !!response.parsed_output);
   if (response.stop_reason === "refusal") throw new Error("Claude declined to process this recipe");
   if (response.stop_reason === "max_tokens") throw new Error("Claude's answer was cut off");
   if (!response.parsed_output) throw new Error("Claude returned nothing usable");
@@ -109,6 +111,7 @@ function toIngredients(items: RawItem[], lines: string[], sections: ListSection[
 }
 
 export async function cleanWithClaude(
+  tag: UsageTag,
   recipeName: string,
   lines: string[],
   listName: string,
@@ -117,6 +120,7 @@ export async function cleanWithClaude(
   const { names, idByName, guide } = sectionContext(sections);
   const numbered = lines.map((l, i) => `${i + 1}. ${l}`).join("\n");
   const parsed = await ask(
+    tag,
     cleanedSchema(names),
     SYSTEM,
     `Store list: ${listName}\nSections, in store order:\n${guide}\n\nRecipe: ${recipeName}\n\nIngredient lines:\n${numbered}`,
@@ -143,6 +147,7 @@ export interface PastedLayout {
 
 /** Read a hand-pasted recipe: which lines are what, plus the shopping items. One call, small output. */
 export async function readPastedWithClaude(
+  tag: UsageTag,
   lines: string[],
   listName: string,
   sections: ListSection[],
@@ -150,6 +155,7 @@ export async function readPastedWithClaude(
   const { names, idByName, guide } = sectionContext(sections);
   const numbered = lines.map((l, i) => `${i + 1}. ${l}`).join("\n");
   const parsed = await ask(
+    tag,
     pastedSchema(names),
     PASTED_SYSTEM,
     `Store list: ${listName}\nSections, in store order:\n${guide}\n\nPasted text, one numbered line each:\n${numbered}`,
@@ -200,6 +206,7 @@ export interface RecipeImage {
 
 /** Read a recipe from photos: the transcription plus the shopping items, in one call. */
 export async function readPhotoWithClaude(
+  tag: UsageTag,
   images: RecipeImage[],
   listName: string,
   sections: ListSection[],
@@ -226,6 +233,7 @@ export async function readPhotoWithClaude(
       },
     ],
   });
+  recordUsage(tag, response, response.stop_reason !== "refusal" && response.stop_reason !== "max_tokens" && !!response.parsed_output);
   if (response.stop_reason === "refusal") throw new Error("Claude declined to read this photo");
   if (response.stop_reason === "max_tokens") throw new Error("Claude's answer was cut off");
   const reading = response.parsed_output;

@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import {
   Check, ChevronDown, ChevronLeft, Copy, KeyRound, Loader2, LogOut, Mail, Share, ShieldCheck, TriangleAlert, UserPlus, X,
 } from "lucide-react";
-import type { AdminInvite, AdminOverview, AdminUser } from "../../shared/types";
+import type { AdminInvite, AdminOverview, AdminUsage, AdminUser, ClaudeUse, UsageSum } from "../../shared/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { adminOverview, createInvite, emailReset, revokeInvite, signOutEverywhere, tempPassword } from "@/lib/admin";
@@ -48,6 +48,7 @@ export function AdminScreen() {
             <Totals data={data} />
             <Invites data={data} reload={load} />
             <People users={data.users} email={data.server.email} />
+            <ClaudeUsage usage={data.usage} />
             <ServerStatus data={data} />
           </>
         )}
@@ -480,6 +481,93 @@ function PersonActions({ user: u, email }: { user: AdminUser; email: boolean }) 
       {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
       {error && <p className="text-sm text-destructive">{error}</p>}
     </div>
+  );
+}
+
+// ---------- Claude usage ----------
+
+const USE_NAMES: Record<ClaudeUse, string> = {
+  "recipe-link": "Recipe from a link",
+  "recipe-paste": "Pasted recipe",
+  "recipe-photo": "Recipe photo",
+  "recipe-readd": "Recipe re-added",
+  receipt: "Receipt",
+};
+const useName = (u: string) => USE_NAMES[u as ClaudeUse] ?? u;
+/** $0.012 for a single call, $1.23 for totals */
+const dollars = (d: number) => (d === 0 ? "$0" : d < 0.1 ? `$${d.toFixed(3)}` : `$${d.toFixed(2)}`);
+const tokens = (n: number) => (n < 1000 ? String(n) : n < 1e6 ? `${(n / 1000).toFixed(n < 1e4 ? 1 : 0)}k` : `${(n / 1e6).toFixed(1)}M`);
+const callText = (s: UsageSum) => `${plural(s.calls, "call")} · ${tokens(s.input)} in, ${tokens(s.output)} out`;
+
+/** Claude calls: how many, how many tokens, and roughly what they cost. */
+function ClaudeUsage({ usage }: { usage: AdminUsage }) {
+  const [tab, setTab] = useState<"byUse" | "byUser" | "byList">("byUse");
+  const rows = usage[tab];
+  return (
+    <Section title="Claude usage">
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          {([["Last 30 days", usage.month], ["All time", usage.allTime]] as const).map(([label, s]) => (
+            <div key={label} className="rounded-xl bg-card p-3 shadow-sm">
+              <div className="text-sm text-muted-foreground">{label}</div>
+              <div className="text-[28px] leading-tight font-semibold tabular-nums">{dollars(s.cost)}</div>
+              <div className="text-xs text-muted-foreground">{callText(s)}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex rounded-lg bg-muted p-1 text-sm font-medium" role="tablist" aria-label="Last 30 days by">
+          {([["byUse", "By use"], ["byUser", "By person"], ["byList", "By list"]] as const).map(([k, label]) => (
+            <button
+              key={k}
+              role="tab"
+              aria-selected={tab === k}
+              onClick={() => setTab(k)}
+              className={cn("flex-1 rounded-md py-1.5 transition-colors", tab === k ? "bg-card shadow-sm" : "text-muted-foreground")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="divide-y overflow-hidden rounded-xl bg-card text-sm shadow-sm">
+          {rows.length === 0 && <p className="px-4 py-3 text-muted-foreground">No Claude calls in the last 30 days.</p>}
+          {rows.map((r) => (
+            <div key={r.key} className="flex items-baseline gap-3 px-4 py-2.5">
+              <div className="min-w-0 flex-1">
+                <div className="truncate">{tab === "byUse" ? useName(r.key) : r.key}</div>
+                <div className="text-xs text-muted-foreground">{callText(r)}</div>
+              </div>
+              <div className="font-medium tabular-nums">{dollars(r.cost)}</div>
+            </div>
+          ))}
+        </div>
+
+        {usage.recent.length > 0 && (
+          <details className="overflow-hidden rounded-xl bg-card text-sm shadow-sm">
+            <summary className="cursor-pointer px-4 py-2.5 text-muted-foreground select-none">Recent calls</summary>
+            <div className="divide-y border-t">
+              {usage.recent.map((c, i) => (
+                <div key={i} className="flex items-baseline gap-3 px-4 py-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate">
+                      {useName(c.use)}
+                      {!c.ok && <span className="text-destructive"> · failed</span>}
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {c.who}{c.list ? ` · ${c.list}` : ""} · {timeAgo(c.at)} · {tokens(c.input)} in, {tokens(c.output)} out
+                    </div>
+                  </div>
+                  <div className="tabular-nums">{c.cost == null ? "?" : dollars(c.cost)}</div>
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+        <p className="px-1 text-xs text-muted-foreground">
+          Estimated from standard API prices. Your Anthropic console has the actual bill.
+        </p>
+      </div>
+    </Section>
   );
 }
 

@@ -72,6 +72,7 @@ The first account made on the server is the admin (or set `ADMIN_EMAILS`). Open 
 - **People**: when each person was last active (to within an hour), how many devices they're signed in on, their lists, and how many items they've added and checked off. Only counts are shown, never what's on anyone's lists. For someone who can't sign in, you can email them a reset link, make a temporary password to read out to them, or sign them out everywhere.
 - **Invites**: single-use links that give someone their own account without adding them to one of your lists. Each link works for 14 days. With email set up it can be sent for you; otherwise share the link. Their name and email are filled in on the sign-up form.
 - **Totals and server**: this week's activity, and whether backups and the NAS copy are healthy.
+- **Claude usage**: every Claude call (recipe links, pasted recipes, recipe photos, re-adding a recipe, receipts) is logged with who, which list, tokens in and out, and an estimated cost from standard API prices (`server/usage.ts`). Last 30 days and all time, by use, person or list, plus the 25 most recent calls. Failed calls that still came back (cut off or declined) are logged too, since they are billed.
 
 Non-admins get a "not found" for anything under `/api/admin`.
 

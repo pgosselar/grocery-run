@@ -9,6 +9,7 @@ import type { Item, PricePoint, PriceUnit, Product, Receipt, ReceiptLine, Receip
 import { db, listById, onCheckOff, roleOf, tx } from "./db.ts";
 import { currentUser } from "./auth.ts";
 import { MODEL, claudeEnabled, client } from "./recipe/claude.ts";
+import { recordUsage, type UsageTag } from "./usage.ts";
 
 /** "Fairlife 2% Chocolate Milk!" → "fairlife 2% chocolate milk" */
 export function keyOf(s: string) {
@@ -253,7 +254,7 @@ Transcribe every purchased line. A long receipt may come in several photos, in o
 - match: you're given candidates, things on this family's list for the trip and products they've bought at this store before. If the line is the same product as a candidate, give its number. A candidate typed casually ("chocolate milk") still matches a specific product ("Fairlife 2% Chocolate Milk"). Use 0 when nothing fits; don't force it.
 - sure: false whenever the abbreviation is ambiguous or the match is a guess.`;
 
-async function readReceipt(images: { data: string }[], candidates: string[], listName: string) {
+async function readReceipt(tag: UsageTag, images: { data: string }[], candidates: string[], listName: string) {
   if (!client) throw new Error("Claude is not configured");
   const list = candidates.length ? candidates.map((c, i) => `${i + 1}. ${c}`).join("\n") : "(none yet)";
   const response = await client.beta.messages.parse({
@@ -276,6 +277,7 @@ async function readReceipt(images: { data: string }[], candidates: string[], lis
       },
     ],
   });
+  recordUsage(tag, response, response.stop_reason !== "refusal" && response.stop_reason !== "max_tokens" && !!response.parsed_output);
   if (response.stop_reason === "refusal") throw new Error("Claude declined to read this photo");
   if (response.stop_reason === "max_tokens") throw new Error("Claude's answer was cut off");
   if (!response.parsed_output) throw new Error("Claude returned nothing usable");
@@ -354,7 +356,7 @@ export async function scanReceipt(req: Request, res: Response) {
 
   let reading: z.infer<typeof receiptSchema>;
   try {
-    reading = await readReceipt(images as { data: string }[], candidates.map((c) => c.label), list.name);
+    reading = await readReceipt({ userId: currentUser(res).id, listId, use: "receipt" }, images as { data: string }[], candidates.map((c) => c.label), list.name);
   } catch (err) {
     console.error("receipt reading failed:", err instanceof Error ? err.message : err);
     return res.status(502).json({ error: "Couldn't read that receipt just now. Try again in a moment." });

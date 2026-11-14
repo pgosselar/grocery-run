@@ -128,6 +128,22 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS recipe_comments_recipe ON recipe_comments(recipe_id, created_at);
+  -- Every Claude call's tokens and estimated cost, for the admin screen. Kept for good: it's tiny.
+  CREATE TABLE IF NOT EXISTS claude_usage (
+    id TEXT PRIMARY KEY,
+    at INTEGER NOT NULL,
+    user_id TEXT NOT NULL,
+    list_id TEXT,
+    use TEXT NOT NULL,
+    model TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cache_write_tokens INTEGER NOT NULL,
+    cache_read_tokens INTEGER NOT NULL,
+    cost_micros INTEGER,
+    ok INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS claude_usage_at ON claude_usage(at);
   -- Prices & receipts: each list (one store) learns the products bought there, under names a person
   -- would recognize, and what they cost. Aliases tie receipt text, store item numbers and the names
   -- people type ("chocolate milk") to a product.

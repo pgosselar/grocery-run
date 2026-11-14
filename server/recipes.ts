@@ -393,7 +393,7 @@ export async function recipeShopping(req: Request, res: Response) {
     const lines = d.ingredients.filter((l) => !l.heading).map((l) => l.text);
     try {
       if (!claudeEnabled) throw new Error("off");
-      ingredients = await cleanWithClaude(d.title, lines, list.name, sections);
+      ingredients = await cleanWithClaude({ userId: user.id, listId, use: "recipe-readd" }, d.title, lines, list.name, sections);
       cleanedBy = "claude";
     } catch (err) {
       if (claudeEnabled) {

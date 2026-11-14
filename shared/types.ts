@@ -348,8 +348,31 @@ export interface AdminInvite {
   usedAt: number | null;
 }
 
+/** What a Claude call was for */
+export type ClaudeUse = "recipe-link" | "recipe-paste" | "recipe-photo" | "recipe-readd" | "receipt";
+
+export interface UsageSum {
+  calls: number;
+  /** Tokens in, including cached ones */
+  input: number;
+  output: number;
+  /** Estimated dollars */
+  cost: number;
+}
+
+export interface AdminUsage {
+  /** The last 30 days */
+  month: UsageSum;
+  allTime: UsageSum;
+  byUse: (UsageSum & { key: string })[];
+  byUser: (UsageSum & { key: string })[];
+  byList: (UsageSum & { key: string })[];
+  recent: { at: number; use: ClaudeUse; model: string; who: string; list: string | null; input: number; output: number; cost: number | null; ok: boolean }[];
+}
+
 export interface AdminOverview {
   users: AdminUser[];
+  usage: AdminUsage;
   invites: AdminInvite[];
   totals: {
     users: number;

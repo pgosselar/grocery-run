@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import type { ParsedIngredient, RecipeDraft, RecipeImport, RecipeLine } from "../../shared/types.ts";
+import type { ListSection, ParsedIngredient, RecipeDraft, RecipeImport, RecipeLine } from "../../shared/types.ts";
 import { defaultSections } from "../../shared/sections.ts";
 import { normalizeTime } from "../../shared/time.ts";
 import { listById, roleOf } from "../db.ts";
@@ -10,6 +10,7 @@ import { extractRecipe, stripTags } from "./extract.ts";
 import { parseIngredientsWithRules } from "./ingredients.ts";
 import { claudeEnabled, cleanWithClaude, readPastedWithClaude, readPhotoWithClaude, type RecipeImage } from "./claude.ts";
 import { isHeading, splitPastedRecipe } from "./split.ts";
+import type { UsageTag } from "../usage.ts";
 
 const MAX_LINES = 80;
 const MAX_PASTED_LINES = 250;
@@ -56,10 +57,10 @@ export async function importRecipe(req: Request, res: Response) {
         steps: recipe.steps,
       };
       const lines = recipe.ingredients.slice(0, MAX_LINES);
-      ({ ingredients, cleanedBy, warning } = await clean(draft.title, lines, list.name, sections));
+      ({ ingredients, cleanedBy, warning } = await clean({ userId: user.id, listId: list.id, use: "recipe-link" }, draft.title, lines, list.name, sections));
     } else if (typeof text === "string" && text.trim()) {
       const lines = text.split(/\r?\n/).map(stripTags).filter(Boolean).slice(0, MAX_PASTED_LINES);
-      ({ draft, ingredients, cleanedBy, warning } = await readPasted(draft, lines, list.name, sections));
+      ({ draft, ingredients, cleanedBy, warning } = await readPasted({ userId: user.id, listId: list.id, use: "recipe-paste" }, draft, lines, list.name, sections));
     } else {
       return res.status(400).json({ error: "Give a recipe link or paste a recipe." });
     }
@@ -84,10 +85,10 @@ export async function importRecipe(req: Request, res: Response) {
   res.json(body);
 }
 
-async function clean(name: string, lines: string[], listName: string, sections: Parameters<typeof cleanWithClaude>[3]) {
+async function clean(tag: UsageTag, name: string, lines: string[], listName: string, sections: ListSection[]) {
   if (claudeEnabled) {
     try {
-      return { ingredients: await cleanWithClaude(name, lines, listName, sections), cleanedBy: "claude" as const, warning: undefined };
+      return { ingredients: await cleanWithClaude(tag, name, lines, listName, sections), cleanedBy: "claude" as const, warning: undefined };
     } catch (err) {
       console.error("Claude cleanup failed, using rules:", err instanceof Error ? err.message : err);
       return { ingredients: parseIngredientsWithRules(lines, sections), cleanedBy: "rules" as const, warning: SMART_FAILED };
@@ -97,10 +98,10 @@ async function clean(name: string, lines: string[], listName: string, sections: 
 }
 
 /** A pasted recipe: Claude reads the layout and the ingredients in one go; otherwise headings and rules. */
-async function readPasted(base: RecipeDraft, lines: string[], listName: string, sections: Parameters<typeof cleanWithClaude>[3]) {
+async function readPasted(tag: UsageTag, base: RecipeDraft, lines: string[], listName: string, sections: ListSection[]) {
   if (claudeEnabled) {
     try {
-      const { layout, ingredients } = await readPastedWithClaude(lines, listName, sections);
+      const { layout, ingredients } = await readPastedWithClaude(tag, lines, listName, sections);
       const headings = new Set(layout.headingLines);
       const pick = (nums: number[]): RecipeLine[] =>
         nums
@@ -173,7 +174,7 @@ export async function importPhoto(req: Request, res: Response) {
 
   let reading: Awaited<ReturnType<typeof readPhotoWithClaude>>;
   try {
-    reading = await readPhotoWithClaude(images as RecipeImage[], list.name, sections);
+    reading = await readPhotoWithClaude({ userId: user.id, listId: list.id, use: "recipe-photo" }, images as RecipeImage[], list.name, sections);
   } catch (err) {
     console.error("photo import failed:", err instanceof Error ? err.message : err);
     return res.status(502).json({ error: "Couldn't read the recipe from that photo just now. Try again in a moment." });
