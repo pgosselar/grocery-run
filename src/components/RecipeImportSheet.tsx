@@ -12,7 +12,7 @@ import { sectionRank } from "@/lib/sections";
 import { LIST_COLORS } from "@/lib/colors";
 import { navigate } from "@/lib/router";
 import { showToast } from "@/lib/toast";
-import { cn } from "@/lib/utils";
+import { cn, safeStorage, saveStorage } from "@/lib/utils";
 import { Toggle } from "./ListEditor";
 
 const MAX_PHOTOS = 4;
@@ -21,6 +21,9 @@ const MAX_PHOTOS = 4;
 type Row = RecipeImport["ingredients"][number] & { key: number; selected: boolean; listId: string; showInfo?: boolean };
 
 /** The section an ingredient lands in when it's sent to another list, whose sections may differ. */
+/** On this phone, the list recipes were last added to from the recipe box: the picker starts there next time. */
+const LAST_LIST = "gr.recipeList";
+
 function sectionOn(list: GroceryList, title: string, section: string) {
   return list.sections.some((s) => s.id === section) ? section : categorize(title, list.sections);
 }
@@ -67,7 +70,8 @@ export function RecipeImportSheet({
 
   useEffect(() => {
     if (!open) return;
-    setTarget(listId ?? lists[0]?.id ?? "");
+    const last = safeStorage<string | null>(LAST_LIST, null);
+    setTarget(listId ?? (last && state.lists[last] ? last : lists[0]?.id) ?? "");
     setRecipe(null);
     setRows([]);
     setError(null);
@@ -161,6 +165,27 @@ export function RecipeImportSheet({
     if (to) update(r.key, { listId, section: sectionOn(to, r.title, r.section) });
   };
   const multiList = lists.length > 1;
+
+  /** Choose the list. After an import has been read, everything moves there (one tap, not one per ingredient). */
+  const pick = (id: string) => {
+    setTarget(id);
+    if (pickList) saveStorage(LAST_LIST, id);
+    const to = state.lists[id];
+    if (!recipe || readding || !to) return; // re-adding fetches again for the new list
+    const onTo = openTitles.get(id);
+    setRows((rs) =>
+      rs
+        .map((r) => {
+          const key = r.title.trim().toLowerCase();
+          const onList = !!onTo?.has(key);
+          // Unticked only because it was already on the old list: it isn't on this one.
+          const wasOnOld = !!openTitles.get(r.listId)?.has(key);
+          const selected = onList ? false : r.selected || (wasOnOld && !r.staple);
+          return { ...r, listId: id, section: sectionOn(to, r.title, r.section), selected };
+        })
+        .sort((a, b) => sectionRank(to.sections, a.section) - sectionRank(to.sections, b.section)),
+    );
+  };
   const rowColor = (r: Row) => {
     const l = state.lists[r.listId];
     return l ? LIST_COLORS[l.color] : color;
@@ -224,7 +249,7 @@ export function RecipeImportSheet({
       <span className="text-[16px]">Add to</span>
       <select
         value={target}
-        onChange={(e) => setTarget(e.target.value)}
+        onChange={(e) => pick(e.target.value)}
         disabled={loading}
         className="max-w-52 bg-transparent text-right font-medium outline-none"
         style={{ color }}
@@ -352,7 +377,7 @@ export function RecipeImportSheet({
         </div>
       ) : (
         <div className="space-y-3 pb-4">
-          {readding && pickList && listPicker}
+          {pickList && listPicker}
           <div className="flex items-center gap-3 rounded-xl bg-card p-3 shadow-sm">
             {recipe.image ? (
               <img src={recipe.image} alt="" className="size-14 shrink-0 rounded-lg object-cover" referrerPolicy="no-referrer" />
