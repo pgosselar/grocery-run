@@ -16,7 +16,7 @@ import {
 } from "./recipes.ts";
 import { emailReset, inviteSomeone, overview, requireAdmin, revokeInvite, signOutEverywhere, tempPassword } from "./admin.ts";
 import {
-  confirmReceipt, deleteReceipt, getCatalog, getPriceHistory, getReceipt, getReceiptPhoto, listReceipts, scanReceipt, setPrice,
+  confirmReceipt, deleteReceipt, getCatalog, getPriceHistory, getReceipt, getReceiptPhoto, listReceipts, retryReceipt, scanReceipt, setPrice,
 } from "./products.ts";
 import type { Op, ServerMessage } from "../shared/types.ts";
 
@@ -171,6 +171,7 @@ app.get("/api/receipts/:id", requireAuth, getReceipt);
 app.get("/api/receipts/:id/photos/:n", requireAuth, getReceiptPhoto);
 app.post("/api/receipts/:id/confirm", requireAuth, confirmReceipt);
 app.delete("/api/receipts/:id", requireAuth, deleteReceipt);
+app.post("/api/receipts/:id/retry", requireAuth, retryReceipt);
 
 // ---------- admin ----------
 

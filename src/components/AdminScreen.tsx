@@ -497,6 +497,11 @@ const useName = (u: string) => USE_NAMES[u as ClaudeUse] ?? u;
 /** $0.012 for a single call, $1.23 for totals */
 const dollars = (d: number) => (d === 0 ? "$0" : d < 0.1 ? `$${d.toFixed(3)}` : `$${d.toFixed(2)}`);
 const tokens = (n: number) => (n < 1000 ? String(n) : n < 1e6 ? `${(n / 1000).toFixed(n < 1e4 ? 1 : 0)}k` : `${(n / 1e6).toFixed(1)}M`);
+/** 8s, 1m 52s */
+const seconds = (ms: number) => {
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+};
 const callText = (s: UsageSum) => `${plural(s.calls, "call")} · ${tokens(s.input)} in, ${tokens(s.output)} out`;
 
 /** Claude calls: how many, how many tokens, and roughly what they cost. */
@@ -555,6 +560,7 @@ function ClaudeUsage({ usage }: { usage: AdminUsage }) {
                     </div>
                     <div className="truncate text-xs text-muted-foreground">
                       {c.who}{c.list ? ` · ${c.list}` : ""} · {timeAgo(c.at)} · {tokens(c.input)} in, {tokens(c.output)} out
+                      {c.ms != null && ` · ${seconds(c.ms)}`}
                     </div>
                   </div>
                   <div className="tabular-nums">{c.cost == null ? "?" : dollars(c.cost)}</div>

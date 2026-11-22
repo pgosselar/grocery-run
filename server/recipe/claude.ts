@@ -73,6 +73,7 @@ function sectionContext(sections: ListSection[]) {
 
 async function ask<T extends z.ZodType>(tag: UsageTag, schema: T, system: string, content: string): Promise<z.infer<T>> {
   if (!client) throw new Error("Claude is not configured");
+  const startedAt = Date.now();
   const response = await client.beta.messages.parse({
     model: MODEL,
     max_tokens: 16000,
@@ -84,7 +85,7 @@ async function ask<T extends z.ZodType>(tag: UsageTag, schema: T, system: string
     system,
     messages: [{ role: "user", content }],
   });
-  recordUsage(tag, response, response.stop_reason !== "refusal" && response.stop_reason !== "max_tokens" && !!response.parsed_output);
+  recordUsage(tag, response, response.stop_reason !== "refusal" && response.stop_reason !== "max_tokens" && !!response.parsed_output, startedAt);
   if (response.stop_reason === "refusal") throw new Error("Claude declined to process this recipe");
   if (response.stop_reason === "max_tokens") throw new Error("Claude's answer was cut off");
   if (!response.parsed_output) throw new Error("Claude returned nothing usable");
@@ -213,6 +214,7 @@ export async function readPhotoWithClaude(
 ): Promise<{ reading: PhotoReading; ingredients: ParsedIngredient[] }> {
   if (!client) throw new Error("Claude is not configured");
   const { names, idByName, guide } = sectionContext(sections);
+  const startedAt = Date.now();
   const response = await client.beta.messages.parse({
     model: MODEL,
     max_tokens: 16000,
@@ -233,7 +235,7 @@ export async function readPhotoWithClaude(
       },
     ],
   });
-  recordUsage(tag, response, response.stop_reason !== "refusal" && response.stop_reason !== "max_tokens" && !!response.parsed_output);
+  recordUsage(tag, response, response.stop_reason !== "refusal" && response.stop_reason !== "max_tokens" && !!response.parsed_output, startedAt);
   if (response.stop_reason === "refusal") throw new Error("Claude declined to read this photo");
   if (response.stop_reason === "max_tokens") throw new Error("Claude's answer was cut off");
   const reading = response.parsed_output;

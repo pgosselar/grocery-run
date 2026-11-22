@@ -579,7 +579,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
     throw new Error("Can't reach the server. Check your connection.");
   }
   const data = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(data.error ?? `Something went wrong (${res.status})`);
+  if (!res.ok) throw Object.assign(new Error(data.error ?? `Something went wrong (${res.status})`), { status: res.status });
   return data;
 }
 

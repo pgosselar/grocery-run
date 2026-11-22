@@ -167,7 +167,7 @@ export function ListScreen({ id }: { id: string }) {
                 </DropdownMenuItem>
                 {pricesOn && (
                   <DropdownMenuItem onSelect={() => setReceiptOpen(true)}>
-                    Scan Receipt <Receipt />
+                    Receipts <Receipt />
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />

@@ -177,6 +177,9 @@ export interface ReceiptLine {
   skip?: boolean;
 }
 
+/** "reading": Claude is still on it (a minute or two); "failed": it couldn't be, and can be tried again. */
+export type ReceiptStatus = "reading" | "failed" | "review" | "saved";
+
 export interface Receipt {
   id: string;
   listId: string;
@@ -184,7 +187,9 @@ export interface Receipt {
   purchasedAt: number | null;
   subtotalCents: number | null;
   totalCents: number | null;
-  status: "review" | "saved";
+  status: ReceiptStatus;
+  /** Why it couldn't be read, when it's "failed" */
+  error?: string | null;
   lines: ReceiptLine[];
   /** Fees, deposits and anything else that isn't a grocery */
   other: { text: string; totalCents: number }[];
@@ -200,10 +205,13 @@ export interface ReceiptSummary {
   store: string;
   purchasedAt: number | null;
   totalCents: number | null;
-  status: "review" | "saved";
+  status: ReceiptStatus;
+  error?: string | null;
   items: number;
   photos: number;
   uploadedBy: string;
+  /** Who took it, by name */
+  uploaderName: string;
   createdAt: number;
 }
 
@@ -367,7 +375,7 @@ export interface AdminUsage {
   byUse: (UsageSum & { key: string })[];
   byUser: (UsageSum & { key: string })[];
   byList: (UsageSum & { key: string })[];
-  recent: { at: number; use: ClaudeUse; model: string; who: string; list: string | null; input: number; output: number; cost: number | null; ok: boolean }[];
+  recent: { at: number; use: ClaudeUse; model: string; who: string; list: string | null; input: number; output: number; cost: number | null; ok: boolean; ms: number | null }[];
 }
 
 export interface AdminOverview {

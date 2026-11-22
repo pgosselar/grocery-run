@@ -116,6 +116,7 @@ export const scanReceipt = (listId: string, images: { data: string }[]) =>
 
 export const listReceipts = (listId: string) => api<ReceiptSummary[]>("GET", `/api/lists/${listId}/receipts`);
 export const getReceipt = (id: string) => api<Receipt>("GET", `/api/receipts/${id}`);
+export const retryReceipt = (id: string) => api<Receipt>("POST", `/api/receipts/${id}/retry`);
 export const receiptPhotoUrl = (id: string, n: number) => `/api/receipts/${id}/photos/${n}`;
 
 export async function confirmReceipt(r: Receipt, lines: { i: number; name: string; skip: boolean }[], store: string) {

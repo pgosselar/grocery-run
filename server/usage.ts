@@ -45,21 +45,22 @@ export function costMicros(model: string, u: Usage): number | null {
 
 const insert = db.prepare(`
   INSERT INTO claude_usage(id, at, user_id, list_id, use, model, input_tokens, output_tokens, cache_write_tokens,
-    cache_read_tokens, cost_micros, ok)
-  VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    cache_read_tokens, cost_micros, ok, duration_ms)
+  VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
 /**
- * Log one response's tokens. `ok` is false when the answer came back but couldn't be used (cut off, declined):
- * those are billed too. Never throws: a logging hiccup mustn't break reading a receipt.
+ * Log one response's tokens, and how long it took from `startedAt`. `ok` is false when the answer came back but
+ * couldn't be used (cut off, declined): those are billed too. Never throws: a logging hiccup mustn't break reading a receipt.
  */
-export function recordUsage(tag: UsageTag, response: { model: string; usage: Usage }, ok = true) {
+export function recordUsage(tag: UsageTag, response: { model: string; usage: Usage }, ok: boolean, startedAt: number) {
   try {
     const u = response.usage;
+    const now = Date.now();
     insert.run(
-      randomUUID(), Date.now(), tag.userId, tag.listId, tag.use, response.model,
+      randomUUID(), now, tag.userId, tag.listId, tag.use, response.model,
       u.input_tokens ?? 0, u.output_tokens ?? 0, u.cache_creation_input_tokens ?? 0, u.cache_read_input_tokens ?? 0,
-      costMicros(response.model, u), ok ? 1 : 0,
+      costMicros(response.model, u), ok ? 1 : 0, now - startedAt,
     );
   } catch (err) {
     console.error("couldn't log Claude usage:", err instanceof Error ? err.message : err);
@@ -85,7 +86,7 @@ const byList = db.prepare(`
 `);
 const recent = db.prepare(`
   SELECT c.at, c.use, c.model, c.input_tokens + c.cache_write_tokens + c.cache_read_tokens AS input, c.output_tokens AS output,
-    c.cost_micros AS cost, c.ok, COALESCE(u.name, 'Someone') AS who, json_extract(l.data, '$.name') AS list
+    c.cost_micros AS cost, c.ok, c.duration_ms AS ms, COALESCE(u.name, 'Someone') AS who, json_extract(l.data, '$.name') AS list
   FROM claude_usage c LEFT JOIN users u ON u.id = c.user_id LEFT JOIN lists l ON l.id = c.list_id
   ORDER BY c.at DESC LIMIT 25
 `);
@@ -112,6 +113,7 @@ export function usageSummary(): AdminUsage {
       output: Number(r.output),
       cost: r.cost == null ? null : Number(r.cost) / 1e6,
       ok: r.ok === 1,
+      ms: r.ms == null ? null : Number(r.ms),
     })),
   };
 }

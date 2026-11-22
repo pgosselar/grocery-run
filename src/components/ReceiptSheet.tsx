@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
-import { Check, ChevronDown, ChevronRight, CircleAlert, Loader2, Receipt as ReceiptIcon, Sparkles, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Check, ChevronDown, ChevronRight, CircleAlert, Loader2, Receipt as ReceiptIcon, RotateCw, Sparkles, Trash2, X } from "lucide-react";
 import type { Receipt, ReceiptLine, ReceiptSummary } from "../../shared/types";
 import { Sheet } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { prepareReceiptPhoto, type PreparedImage } from "@/lib/images";
-import { confirmReceipt, deleteReceipt, getReceipt, listReceipts, money, receiptPhotoUrl, scanReceipt, unitLabel } from "@/lib/products";
+import {
+  confirmReceipt, deleteReceipt, getReceipt, listReceipts, money, receiptPhotoUrl, retryReceipt, scanReceipt, unitLabel,
+} from "@/lib/products";
 import { showToast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
 import { PhotoButtons } from "./RecipeImportSheet";
@@ -15,23 +17,75 @@ const when = (ms: number | null) =>
 
 type Edit = { name: string; skip: boolean };
 
-/** Photograph a receipt, check what was read, and save its prices to this list's store. */
+/** Photograph a receipt, check what was read, and save its prices to this list's store. Also every receipt so far. */
 export function ReceiptSheet({ listId, open, onClose, color }: { listId: string; open: boolean; onClose: () => void; color: string }) {
   const [photos, setPhotos] = useState<PreparedImage[]>([]);
   const [preparing, setPreparing] = useState(false);
-  const [reading, setReading] = useState(false);
+  const [sending, setSending] = useState(false);
+  /** The receipt Claude is reading now (a minute or two), checked on every few seconds */
+  const [readingId, setReadingId] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
+  const [failed, setFailed] = useState<{ id: string; error: string } | null>(null);
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [recent, setRecent] = useState<ReceiptSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(() => listReceipts(listId).then(setRecent).catch(() => {}), [listId]);
 
   useEffect(() => {
     if (!open) return;
     setPhotos([]);
     setReceipt(null);
+    setReadingId(null);
+    setFailed(null);
     setError(null);
     setRecent(null);
     listReceipts(listId).then(setRecent).catch(() => setRecent([]));
   }, [open, listId]);
+
+  // Check back until it's read. Bad signal in the store just means checking again a bit later: the server keeps going.
+  useEffect(() => {
+    if (!open || !readingId) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const check = async () => {
+      try {
+        const r = await getReceipt(readingId);
+        if (stopped) return;
+        setOffline(false);
+        if (r.status === "reading") {
+          timer = setTimeout(check, 3000);
+          return;
+        }
+        setReadingId(null);
+        refresh();
+        if (r.status === "failed") setFailed({ id: r.id, error: r.error ?? "Couldn't read that receipt." });
+        else setReceipt(r);
+      } catch (e) {
+        if (stopped) return;
+        if ((e as { status?: number }).status === 404) {
+          setReadingId(null); // deleted, maybe by someone else
+          refresh();
+          return;
+        }
+        setOffline(true);
+        timer = setTimeout(check, 5000);
+      }
+    };
+    timer = setTimeout(check, 3000);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [open, readingId, refresh]);
+
+  // One that someone else (or an earlier visit) is still reading: keep the history up to date until it's done.
+  const otherReading = !readingId && !!recent?.some((r) => r.status === "reading");
+  useEffect(() => {
+    if (!open || !otherReading) return;
+    const t = setInterval(refresh, 5000);
+    return () => clearInterval(t);
+  }, [open, otherReading, refresh]);
 
   const addFiles = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -49,21 +103,50 @@ export function ReceiptSheet({ listId, open, onClose, color }: { listId: string;
   };
 
   const read = async () => {
-    setReading(true);
+    setSending(true);
     setError(null);
+    setFailed(null);
     try {
-      setReceipt(await scanReceipt(listId, photos.map((p) => ({ data: p.data }))));
+      const r = await scanReceipt(listId, photos.map((p) => ({ data: p.data })));
+      setPhotos([]);
+      setReadingId(r.id);
+      refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't read that receipt");
+      // Nothing reached the server (or it turned the photos down), so they're still here to send again.
+      setError(e instanceof Error ? e.message : "Couldn't send the photos");
     } finally {
-      setReading(false);
+      setSending(false);
     }
   };
 
-  const openSaved = async (id: string) => {
+  const retry = async (id: string) => {
     setError(null);
+    setFailed(null);
     try {
-      setReceipt(await getReceipt(id));
+      await retryReceipt(id);
+      setReadingId(id);
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't try again");
+    }
+  };
+
+  const discard = async (id: string) => {
+    setFailed(null);
+    try {
+      await deleteReceipt({ id }, listId);
+      refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't delete it");
+    }
+  };
+
+  const openRow = async (r: ReceiptSummary) => {
+    setError(null);
+    if (r.status === "reading") return setReadingId(r.id);
+    if (r.status === "failed") return setFailed({ id: r.id, error: r.error ?? "Couldn't read that receipt." });
+    try {
+      setReceipt(await getReceipt(r.id));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't open that receipt");
     }
@@ -75,25 +158,47 @@ export function ReceiptSheet({ listId, open, onClose, color }: { listId: string;
         receipt={receipt}
         open={open}
         color={color}
-        onBack={() => { setReceipt(null); setPhotos([]); listReceipts(listId).then(setRecent).catch(() => {}); }}
+        onBack={() => { setReceipt(null); setPhotos([]); refresh(); }}
         onClose={onClose}
       />
     );
   }
 
+  const busy = sending || !!readingId;
+
   return (
-    <Sheet open={open} onOpenChange={(o) => !o && onClose()} title="Scan Receipt" hideCancel doneLabel="Close" onDone={onClose}>
+    <Sheet open={open} onOpenChange={(o) => !o && onClose()} title="Receipts" hideCancel doneLabel="Close" onDone={onClose}>
       <div className="space-y-5 pb-6">
         <p className="px-1 text-sm text-muted-foreground">
           Take a photo of the receipt after you shop. Its prices go into this list's estimate, and the names on it are
           remembered for next time. A long receipt can take up to {MAX_PHOTOS} photos, top to bottom.
         </p>
 
-        {reading ? (
+        {busy ? (
           <div className="flex flex-col items-center gap-3 rounded-xl bg-card px-4 py-10 text-center shadow-sm">
             <Loader2 className="size-8 animate-spin" style={{ color }} />
-            <p className="font-medium">Reading the receipt…</p>
-            <p className="text-sm text-muted-foreground">This takes 20 seconds or so.</p>
+            <p className="font-medium">{sending ? "Sending the photos…" : "Reading the receipt…"}</p>
+            <p className="text-sm text-muted-foreground">
+              {sending
+                ? "Once they're sent, bad signal won't matter."
+                : offline
+                  ? "Waiting for a connection. The receipt is still being read."
+                  : "This usually takes a minute or two. You can close this: it keeps going, and it'll be under History when it's done."}
+            </p>
+          </div>
+        ) : failed ? (
+          <div className="space-y-3 rounded-xl bg-card p-4 shadow-sm">
+            <p className="flex gap-2 text-[15px]">
+              <CircleAlert className="mt-0.5 size-5 shrink-0 text-destructive" /> {failed.error}
+            </p>
+            <div className="flex gap-2">
+              <Button className="flex-1" style={{ backgroundColor: color }} onClick={() => retry(failed.id)}>
+                <RotateCw /> Try Again
+              </Button>
+              <Button variant="secondary" onClick={() => discard(failed.id)}>
+                <Trash2 /> Delete
+              </Button>
+            </div>
           </div>
         ) : (
           <>
@@ -124,31 +229,79 @@ export function ReceiptSheet({ listId, open, onClose, color }: { listId: string;
 
         {error && <p className="px-1 text-sm text-destructive">{error}</p>}
 
-        {!reading && recent && recent.length > 0 && (
-          <section>
-            <h3 className="mb-1.5 px-1 text-sm font-medium text-muted-foreground">Recent receipts</h3>
-            <ul className="divide-y overflow-hidden rounded-xl bg-card shadow-sm">
-              {recent.map((r) => (
+        {recent && recent.length > 0 && <History receipts={recent} color={color} readingId={readingId} onOpen={openRow} />}
+      </div>
+    </Sheet>
+  );
+}
+
+/** Every receipt for this list (store), by month, with what was spent. */
+function History({
+  receipts, color, readingId, onOpen,
+}: { receipts: ReceiptSummary[]; color: string; readingId: string | null; onOpen: (r: ReceiptSummary) => void }) {
+  const dated = (r: ReceiptSummary) => r.purchasedAt ?? r.createdAt;
+  const months: { key: string; label: string; spent: number; trips: number; rows: ReceiptSummary[] }[] = [];
+  const thisYear = new Date().getFullYear();
+  for (const r of [...receipts].sort((a, b) => dated(b) - dated(a))) {
+    const d = new Date(dated(r));
+    const key = `${d.getFullYear()}-${d.getMonth()}`;
+    let m = months.find((x) => x.key === key);
+    if (!m) {
+      const label = d.toLocaleDateString(undefined, { month: "long", year: d.getFullYear() === thisYear ? undefined : "numeric" });
+      months.push((m = { key, label, spent: 0, trips: 0, rows: [] }));
+    }
+    m.rows.push(r);
+    if (r.status === "saved") {
+      m.trips++;
+      m.spent += r.totalCents ?? 0;
+    }
+  }
+
+  return (
+    <section className="space-y-4">
+      <h3 className="px-1 text-lg font-semibold">History</h3>
+      {months.map((m) => (
+        <div key={m.key}>
+          <div className="mb-1.5 flex items-baseline justify-between px-1 text-sm text-muted-foreground">
+            <span className="font-medium">{m.label}</span>
+            {m.trips > 0 && (
+              <span className="tabular-nums">
+                {m.trips} trip{m.trips === 1 ? "" : "s"} · {money(m.spent)}
+              </span>
+            )}
+          </div>
+          <ul className="divide-y overflow-hidden rounded-xl bg-card shadow-sm">
+            {m.rows.map((r) => {
+              const reading = r.status === "reading" || r.id === readingId;
+              return (
                 <li key={r.id}>
-                  <button className="flex w-full items-center gap-3 px-4 py-2.5 text-left active:bg-accent" onClick={() => openSaved(r.id)}>
-                    <ReceiptIcon className="size-5 shrink-0" style={{ color }} />
+                  <button className="flex w-full items-center gap-3 px-4 py-2.5 text-left active:bg-accent" onClick={() => onOpen(r)}>
+                    {reading ? (
+                      <Loader2 className="size-5 shrink-0 animate-spin" style={{ color }} />
+                    ) : (
+                      <ReceiptIcon className="size-5 shrink-0" style={{ color }} />
+                    )}
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{r.store} · {when(r.purchasedAt ?? r.createdAt)}</span>
-                      <span className="block text-xs text-muted-foreground">
-                        {r.items} items{r.totalCents != null ? ` · ${money(r.totalCents)}` : ""}
-                        {r.status === "review" ? " · not saved yet" : ""}
+                      <span className="block truncate font-medium">{r.store} · {when(dated(r))}</span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {reading
+                          ? `Reading… · ${r.uploaderName}`
+                          : r.status === "failed"
+                            ? "Couldn't be read · tap to try again"
+                            : `${r.items} items${r.totalCents != null ? ` · ${money(r.totalCents)}` : ""} · ${r.uploaderName}${r.status === "review" ? " · not saved yet" : ""}`}
                       </span>
                     </span>
-                    {r.status === "review" && <CircleAlert className="size-4.5 text-amber-500" />}
+                    {!reading && r.status === "review" && <CircleAlert className="size-4.5 text-amber-500" />}
+                    {!reading && r.status === "failed" && <CircleAlert className="size-4.5 text-destructive" />}
                     <ChevronRight className="size-5 text-muted-foreground/60" />
                   </button>
                 </li>
-              ))}
-            </ul>
-          </section>
-        )}
-      </div>
-    </Sheet>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </section>
   );
 }
 

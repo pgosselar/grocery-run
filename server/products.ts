@@ -184,10 +184,24 @@ const insertReceipt = db.prepare(
 );
 const receiptRow = db.prepare("SELECT * FROM receipts WHERE id = ?");
 const updateReceipt = db.prepare("UPDATE receipts SET status = ?, data = ?, store = ?, purchased_at = ? WHERE id = ?");
+const finishReading = db.prepare(
+  "UPDATE receipts SET status = 'review', data = ?, store = ?, purchased_at = ?, total_cents = ? WHERE id = ? AND status = 'reading'",
+);
+const failReading = db.prepare(
+  "UPDATE receipts SET status = 'failed', data = json_set(data, '$.error', ?) WHERE id = ? AND status = 'reading'",
+);
+const restartReading = db.prepare(
+  "UPDATE receipts SET status = 'reading', data = json_remove(data, '$.error') WHERE id = ? AND status = 'failed'",
+);
 const listReceiptRows = db.prepare(`
-  SELECT r.*, (SELECT COUNT(*) FROM receipt_photos p WHERE p.receipt_id = r.id) AS photos
-  FROM receipts r WHERE r.list_id = ? ORDER BY r.created_at DESC LIMIT 20
+  SELECT r.*, (SELECT COUNT(*) FROM receipt_photos p WHERE p.receipt_id = r.id) AS photos, COALESCE(u.name, 'Someone') AS uploader
+  FROM receipts r LEFT JOIN users u ON u.id = r.uploaded_by WHERE r.list_id = ? ORDER BY r.created_at DESC LIMIT 300
 `);
+// Readings of the same receipt that were never saved: retries after a dropped connection.
+const unsavedCopies = db.prepare(
+  "SELECT id FROM receipts WHERE list_id = ? AND status IN ('review', 'failed') AND purchased_at = ? AND total_cents IS ? AND id != ?",
+);
+const allPhotos = db.prepare("SELECT jpeg FROM receipt_photos WHERE receipt_id = ? ORDER BY n");
 const sameReceipt = db.prepare(
   "SELECT id FROM receipts WHERE list_id = ? AND status = 'saved' AND purchased_at = ? AND total_cents IS ? AND id != ? LIMIT 1",
 );
@@ -209,10 +223,24 @@ const recentlyChecked = db.prepare(
 
 setInterval(() => purgePhotos.run(Date.now() - PHOTO_DAYS * 864e5), 3_600_000).unref();
 
+// A reading the server was partway through when it restarted won't finish; it can be tried again.
+db.prepare("UPDATE receipts SET status = 'failed', data = json_set(data, '$.error', ?) WHERE status = 'reading'")
+  .run("The server restarted while reading this receipt.");
+// Unsaved readings of a receipt that's since been saved: retries from before those were tidied up on save.
+db.exec(`
+  DELETE FROM receipts WHERE status = 'review' AND purchased_at IS NOT NULL AND EXISTS (
+    SELECT 1 FROM receipts s WHERE s.list_id = receipts.list_id AND s.status = 'saved'
+      AND s.purchased_at = receipts.purchased_at AND s.total_cents IS receipts.total_cents)
+`);
+
 interface StoredReceipt {
   subtotalCents: number | null;
   lines: ReceiptLine[];
   other: { text: string; totalCents: number }[];
+  /** Why it couldn't be read */
+  error?: string;
+  /** The phone's time zone (getTimezoneOffset), for the time printed on the receipt */
+  tzOffset?: number;
 }
 
 const cents = (dollars: number | null | undefined) => (dollars == null || !Number.isFinite(dollars) ? null : Math.round(dollars * 100));
@@ -257,6 +285,7 @@ Transcribe every purchased line. A long receipt may come in several photos, in o
 async function readReceipt(tag: UsageTag, images: { data: string }[], candidates: string[], listName: string) {
   if (!client) throw new Error("Claude is not configured");
   const list = candidates.length ? candidates.map((c, i) => `${i + 1}. ${c}`).join("\n") : "(none yet)";
+  const startedAt = Date.now();
   const response = await client.beta.messages.parse({
     model: MODEL,
     max_tokens: 16000,
@@ -277,7 +306,7 @@ async function readReceipt(tag: UsageTag, images: { data: string }[], candidates
       },
     ],
   });
-  recordUsage(tag, response, response.stop_reason !== "refusal" && response.stop_reason !== "max_tokens" && !!response.parsed_output);
+  recordUsage(tag, response, response.stop_reason !== "refusal" && response.stop_reason !== "max_tokens" && !!response.parsed_output, startedAt);
   if (response.stop_reason === "refusal") throw new Error("Claude declined to read this photo");
   if (response.stop_reason === "max_tokens") throw new Error("Claude's answer was cut off");
   if (!response.parsed_output) throw new Error("Claude returned nothing usable");
@@ -302,6 +331,7 @@ function toReceipt(row: Record<string, unknown>, photos: number): Receipt {
     subtotalCents: data.subtotalCents,
     totalCents: (row.total_cents as number | null) ?? null,
     status: row.status as Receipt["status"],
+    error: data.error ?? null,
     lines: data.lines,
     other: data.other,
     photos,
@@ -319,8 +349,12 @@ function receiptFor(req: Request, res: Response) {
   return row;
 }
 
-/** Photos of a receipt → a reading to review: { images: [{data}], tzOffset } */
-export async function scanReceipt(req: Request, res: Response) {
+/**
+ * Photos of a receipt → a reading to review: { images: [{data}], tzOffset }. Answers as soon as the photos are
+ * stored, with the receipt "reading"; Claude takes a minute or two, which is longer than a phone in a store (or
+ * Cloudflare, at 100 seconds) will reliably wait for one response. The app checks back until it's "review" or "failed".
+ */
+export function scanReceipt(req: Request, res: Response) {
   const listId = String(req.params.id);
   const list = memberList(req, res, listId);
   if (!list) return;
@@ -334,7 +368,34 @@ export async function scanReceipt(req: Request, res: Response) {
   );
   if (!ok) return res.status(400).json({ error: "One of those photos couldn't be read. Try taking it again." });
 
-  // Candidates: what was on the list for this trip, then what's been bought here before.
+  const id = randomUUID();
+  const now = Date.now();
+  const user = currentUser(res).id;
+  const data: StoredReceipt = { subtotalCents: null, lines: [], other: [], tzOffset: Number(tzOffset) || 0 };
+  tx(() => {
+    insertReceipt.run(id, listId, list.name, null, null, "reading", JSON.stringify(data), user, now);
+    images.forEach((img: { data: string }, n: number) => insertPhoto.run(id, n, Buffer.from(img.data, "base64"), now));
+  });
+  startReading(id, user, images.map((i: { data: string }) => i.data));
+  res.status(202).json(toReceipt(receiptRow.get(id) as Record<string, unknown>, images.length));
+}
+
+/** Read a receipt that failed again, from the photos already stored. */
+export function retryReceipt(req: Request, res: Response) {
+  const row = receiptFor(req, res);
+  if (!row) return;
+  const id = String(row.id);
+  if (row.status !== "failed") return res.status(409).json({ error: "That receipt has already been read." });
+  if (!claudeEnabled) return res.status(400).json({ error: "Reading receipts needs Claude, which isn't set up on this server." });
+  const photos = allPhotos.all(id) as { jpeg: Uint8Array }[];
+  if (!photos.length) return res.status(410).json({ error: "The photos of this receipt have been deleted. Take them again." });
+  restartReading.run(id);
+  startReading(id, currentUser(res).id, photos.map((p) => Buffer.from(p.jpeg).toString("base64")));
+  res.status(202).json(toReceipt(receiptRow.get(id) as Record<string, unknown>, photos.length));
+}
+
+/** Candidates: what was on the list for this trip, then what's been bought here before. */
+function candidatesFor(listId: string) {
   const since = Date.now() - 3 * 864e5;
   const trip = [
     ...(tripItems.all(listId, since) as { title: string }[]).map((r) => r.title),
@@ -353,76 +414,83 @@ export async function scanReceipt(req: Request, res: Response) {
     if (candidates.some((c) => c.productId === p.id)) continue;
     candidates.push({ label: `${p.name} (bought here before)`, productId: p.id, title: null });
   }
+  return candidates;
+}
 
-  let reading: z.infer<typeof receiptSchema>;
-  try {
-    reading = await readReceipt({ userId: currentUser(res).id, listId, use: "receipt" }, images as { data: string }[], candidates.map((c) => c.label), list.name);
-  } catch (err) {
-    console.error("receipt reading failed:", err instanceof Error ? err.message : err);
-    return res.status(502).json({ error: "Couldn't read that receipt just now. Try again in a moment." });
-  }
-  if (!reading.isReceipt || !reading.lines.length) {
-    return res.status(422).json({ error: "Couldn't find a receipt in that photo. Try a flat, well-lit shot of the whole thing." });
-  }
+/** Read a stored "reading" receipt in the background, leaving it "review" or "failed". */
+function startReading(id: string, userId: string, images: string[]) {
+  const fail = (message: string) => failReading.run(message, id);
+  (async () => {
+    const row = receiptRow.get(id) as Record<string, unknown>;
+    const listId = String(row.list_id);
+    const list = listById(listId);
+    if (!list) return fail("That list has been deleted.");
+    const tzOffset = (JSON.parse(String(row.data)) as StoredReceipt).tzOffset ?? 0;
+    const candidates = candidatesFor(listId);
 
-  const lines: ReceiptLine[] = [];
-  const other: StoredReceipt["other"] = [];
-  for (const l of reading.lines) {
-    const total = cents(l.total) ?? 0;
-    if (l.kind !== "item") {
-      other.push({ text: l.text, totalCents: total });
-      continue;
+    let reading: z.infer<typeof receiptSchema>;
+    try {
+      reading = await readReceipt({ userId, listId, use: "receipt" }, images.map((data) => ({ data })), candidates.map((c) => c.label), list.name);
+    } catch (err) {
+      console.error("receipt reading failed:", err instanceof Error ? err.message : err);
+      return fail("Couldn't read that receipt just now. Try again in a moment.");
     }
-    const qty = l.quantity > 0 ? l.quantity : 1;
-    const weightUnit = l.weightUnit ? (l.weightUnit as PriceUnit) : null;
-    const unitPriceCents = cents(l.unitPrice) ?? Math.round(total / (weightUnit && l.weight ? l.weight : qty));
-    // Layer 1: a receipt line or item number someone already confirmed.
-    const known = ((l.code && productByAlias.get(listId, `code:${keyOf(l.code)}`)) ||
-      productByAlias.get(listId, `text:${keyOf(l.text)}`)) as ProductRow | undefined;
-    const cand = l.match > 0 ? candidates[l.match - 1] : undefined;
-    let productId: string | null = null;
-    let name = l.name.trim() || l.text;
-    let status: ReceiptLine["status"] = "new";
-    if (known) {
-      productId = known.id;
-      name = known.name;
-      status = "known";
-    } else if (cand) {
-      // Layers 2 and 3: Claude matched it to the trip or to something bought here before.
-      productId = cand.productId;
-      if (cand.productId && !cand.title) name = (productById.get(cand.productId, listId) as unknown as ProductRow).name;
-      status = l.sure ? "high" : "low";
-    } else if (!l.sure) status = "low";
-    lines.push({
-      i: lines.length,
-      text: l.text,
-      code: l.code,
-      quantity: qty,
-      weight: weightUnit ? l.weight : null,
-      weightUnit,
-      unitPriceCents,
-      totalCents: total,
-      discountCents: cents(l.discount) ?? 0,
-      name,
-      productId,
-      itemTitle: cand?.title ?? null,
-      status,
-    });
-  }
+    if (!reading.isReceipt || !reading.lines.length) {
+      return fail("Couldn't find a receipt in that photo. Try a flat, well-lit shot of the whole thing.");
+    }
 
-  const id = randomUUID();
-  const now = Date.now();
-  const data: StoredReceipt = { subtotalCents: cents(reading.subtotal), lines, other };
-  tx(() => {
-    insertReceipt.run(
-      id, listId, reading.store.trim().slice(0, 80) || list.name, parseWhen(reading.purchasedAt, Number(tzOffset) || 0),
-      cents(reading.total), "review", JSON.stringify(data), currentUser(res).id, now,
-    );
-    images.forEach((img: { data: string }, n: number) => insertPhoto.run(id, n, Buffer.from(img.data, "base64"), now));
+    const lines: ReceiptLine[] = [];
+    const other: StoredReceipt["other"] = [];
+    for (const l of reading.lines) {
+      const total = cents(l.total) ?? 0;
+      if (l.kind !== "item") {
+        other.push({ text: l.text, totalCents: total });
+        continue;
+      }
+      const qty = l.quantity > 0 ? l.quantity : 1;
+      const weightUnit = l.weightUnit ? (l.weightUnit as PriceUnit) : null;
+      const unitPriceCents = cents(l.unitPrice) ?? Math.round(total / (weightUnit && l.weight ? l.weight : qty));
+      // Layer 1: a receipt line or item number someone already confirmed.
+      const known = ((l.code && productByAlias.get(listId, `code:${keyOf(l.code)}`)) ||
+        productByAlias.get(listId, `text:${keyOf(l.text)}`)) as ProductRow | undefined;
+      const cand = l.match > 0 ? candidates[l.match - 1] : undefined;
+      let productId: string | null = null;
+      let name = l.name.trim() || l.text;
+      let status: ReceiptLine["status"] = "new";
+      if (known) {
+        productId = known.id;
+        name = known.name;
+        status = "known";
+      } else if (cand) {
+        // Layers 2 and 3: Claude matched it to the trip or to something bought here before.
+        productId = cand.productId;
+        if (cand.productId && !cand.title) name = (productById.get(cand.productId, listId) as unknown as ProductRow).name;
+        status = l.sure ? "high" : "low";
+      } else if (!l.sure) status = "low";
+      lines.push({
+        i: lines.length,
+        text: l.text,
+        code: l.code,
+        quantity: qty,
+        weight: weightUnit ? l.weight : null,
+        weightUnit,
+        unitPriceCents,
+        totalCents: total,
+        discountCents: cents(l.discount) ?? 0,
+        name,
+        productId,
+        itemTitle: cand?.title ?? null,
+        status,
+      });
+    }
+
+    const data: StoredReceipt = { subtotalCents: cents(reading.subtotal), lines, other, tzOffset };
+    // (A no-op if it was deleted while Claude was reading it.)
+    finishReading.run(JSON.stringify(data), reading.store.trim().slice(0, 80) || list.name, parseWhen(reading.purchasedAt, tzOffset), cents(reading.total), id);
+  })().catch((err) => {
+    console.error("receipt reading crashed:", err instanceof Error ? err.message : err);
+    fail("Something went wrong reading that receipt. Try again in a moment.");
   });
-  const saved = toReceipt(receiptRow.get(id) as Record<string, unknown>, images.length);
-  const dup = saved.purchasedAt ? (sameReceipt.get(listId, saved.purchasedAt, saved.totalCents, id) as { id: string } | undefined) : undefined;
-  res.json({ ...saved, duplicateOf: dup?.id ?? null });
 }
 
 export function listReceipts(req: Request, res: Response) {
@@ -436,9 +504,11 @@ export function listReceipts(req: Request, res: Response) {
       purchasedAt: (r.purchased_at as number | null) ?? null,
       totalCents: (r.total_cents as number | null) ?? null,
       status: r.status as ReceiptSummary["status"],
+      error: data.error ?? null,
       items: data.lines.length,
       photos: Number(r.photos),
       uploadedBy: String(r.uploaded_by),
+      uploaderName: String(r.uploader),
       createdAt: Number(r.created_at),
     };
   });
@@ -448,7 +518,11 @@ export function listReceipts(req: Request, res: Response) {
 export function getReceipt(req: Request, res: Response) {
   const row = receiptFor(req, res);
   if (!row) return;
-  res.json(toReceipt(row, (photoCount.get(String(row.id)) as { n: number }).n));
+  const r = toReceipt(row, (photoCount.get(String(row.id)) as { n: number }).n);
+  const dup = r.status === "review" && r.purchasedAt
+    ? (sameReceipt.get(r.listId, r.purchasedAt, r.totalCents, r.id) as { id: string } | undefined)
+    : undefined;
+  res.json({ ...r, duplicateOf: dup?.id ?? null });
 }
 
 export function getReceiptPhoto(req: Request, res: Response) {
@@ -469,6 +543,7 @@ export function confirmReceipt(req: Request, res: Response) {
   if (!row) return;
   const listId = String(row.list_id);
   const receipt = toReceipt(row, 0);
+  if (receipt.status !== "review" && receipt.status !== "saved") return res.status(409).json({ error: "That receipt hasn't been read yet." });
   const { lines: edits, store } = (req.body ?? {}) as { lines?: unknown; store?: unknown };
   if (!Array.isArray(edits)) return res.status(400).json({ error: "Nothing to save" });
   const byIndex = new Map(edits.filter((e) => e && Number.isInteger(e.i)).map((e) => [e.i as number, e as { name?: unknown; skip?: unknown }]));
@@ -510,6 +585,10 @@ export function confirmReceipt(req: Request, res: Response) {
     const data: StoredReceipt = { subtotalCents: receipt.subtotalCents, lines, other: receipt.other };
     const storeName = typeof store === "string" && store.trim() ? store.trim().slice(0, 80) : receipt.store;
     updateReceipt.run("saved", JSON.stringify(data), storeName, receipt.purchasedAt, receipt.id);
+    // Other readings of this same receipt (scanned again after a dropped connection) would only be confusing now.
+    if (receipt.purchasedAt != null) {
+      for (const c of unsavedCopies.all(listId, receipt.purchasedAt, receipt.totalCents, receipt.id) as { id: string }[]) deleteReceiptRow.run(c.id);
+    }
     return count;
   });
   res.json({ saved });

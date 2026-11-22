@@ -211,6 +211,9 @@ if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'invited_
 if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'prefs'").get()) {
   db.exec("ALTER TABLE users ADD COLUMN prefs TEXT");
 }
+if (!db.prepare("SELECT 1 FROM pragma_table_info('claude_usage') WHERE name = 'duration_ms'").get()) {
+  db.exec("ALTER TABLE claude_usage ADD COLUMN duration_ms INTEGER");
+}
 
 export function tx<T>(fn: () => T): T {
   db.exec("BEGIN");
